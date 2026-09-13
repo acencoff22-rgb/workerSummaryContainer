@@ -115,6 +115,14 @@ button {
   grid-template-columns: minmax(220px, 320px);
 }
 
+.github-form {
+  grid-template-columns:
+    minmax(180px, 1fr)
+    minmax(180px, 1fr)
+    minmax(150px, 180px)
+    minmax(220px, 1.2fr);
+}
+
 .form-grid label {
   display: flex;
   flex-direction: column;
@@ -332,18 +340,13 @@ button {
   font-weight: 700;
 }
 
-.check-card:has(input:checked) {
-  border-color: var(--primary);
-  outline: 2px solid color-mix(
-    in srgb,
-    var(--primary) 20%,
-    transparent
-  );
-}
-
 .check-card input {
   width: 18px;
   height: 18px;
+}
+
+.check-card:has(input:checked) {
+  border-color: var(--primary);
 }
 
 .leave-list {
@@ -393,6 +396,23 @@ button {
   background: var(--background);
 }
 
+.github-config-status,
+.github-save-status {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.github-config-status.success,
+.github-save-status.success {
+  color: var(--success);
+}
+
 .empty-state {
   padding: 24px;
   text-align: center;
@@ -406,6 +426,12 @@ footer {
   font-size: 13px;
   text-align: center;
   padding-top: 4px;
+}
+
+@media (max-width: 1050px) {
+  .github-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -447,9 +473,10 @@ footer {
   }
 }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .form-grid,
-  .leave-form {
+  .leave-form,
+  .github-form {
     grid-template-columns: 1fr;
   }
 
