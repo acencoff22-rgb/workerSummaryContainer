@@ -10,6 +10,8 @@
   --danger: #dc2626;
   --danger-hover: #b91c1c;
   --success: #15803d;
+  --weekend: #fff7f7;
+  --today: #eff6ff;
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   --radius: 14px;
 }
@@ -26,6 +28,8 @@ body.dark {
   --danger: #f87171;
   --danger-hover: #ef4444;
   --success: #4ade80;
+  --weekend: #30242a;
+  --today: #24354d;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
@@ -61,7 +65,7 @@ button {
 }
 
 .app-shell {
-  width: min(1180px, calc(100% - 32px));
+  width: min(1200px, calc(100% - 32px));
   margin: 0 auto;
   padding: 28px 0 48px;
 }
@@ -208,25 +212,6 @@ button {
   cursor: pointer;
 }
 
-.rule-list {
-  display: grid;
-  gap: 10px;
-}
-
-.rule-item {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 16px;
-  padding: 13px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-soft);
-}
-
-.rule-item strong {
-  white-space: nowrap;
-}
-
 .section-header {
   display: flex;
   align-items: flex-start;
@@ -247,6 +232,135 @@ button {
 
 .status.success {
   color: var(--success);
+}
+
+.calendar-navigation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.calendar-navigation .secondary-button {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.calendar-title {
+  min-width: 120px;
+  text-align: center;
+}
+
+.calendar-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.calendar {
+  min-width: 920px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(130px, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.calendar-weekday {
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--surface-soft);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.calendar-weekday.sunday {
+  color: #dc2626;
+}
+
+.calendar-weekday.saturday {
+  color: #2563eb;
+}
+
+.calendar-day {
+  min-height: 170px;
+  padding: 9px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.calendar-day:hover {
+  background: var(--surface-soft);
+}
+
+.calendar-day.empty {
+  background: var(--surface-soft);
+  cursor: default;
+}
+
+.calendar-day.weekend {
+  background: var(--weekend);
+}
+
+.calendar-day.today {
+  background: var(--today);
+}
+
+.calendar-day.leave {
+  box-shadow: inset 0 3px 0 var(--danger);
+}
+
+.calendar-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.calendar-date-number {
+  font-weight: 800;
+}
+
+.calendar-leave-label {
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.calendar-assignment {
+  display: grid;
+  gap: 4px;
+}
+
+.calendar-worker {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.calendar-worker-name {
+  font-weight: 800;
+}
+
+.calendar-worker-job {
+  word-break: keep-all;
+}
+
+.calendar-worker-job.leave {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.calendar-worker-job.replacement {
+  color: var(--primary);
 }
 
 .result-text {
@@ -413,6 +527,25 @@ button {
   color: var(--success);
 }
 
+.rule-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rule-item {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.rule-item strong {
+  white-space: nowrap;
+}
+
 .empty-state {
   padding: 24px;
   text-align: center;
@@ -450,7 +583,7 @@ footer {
 
 @media (max-width: 700px) {
   .app-shell {
-    width: min(100% - 20px, 1180px);
+    width: min(100% - 20px, 1200px);
     padding-top: 18px;
   }
 
@@ -465,6 +598,11 @@ footer {
 
   .status {
     white-space: normal;
+  }
+
+  .calendar-navigation {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .rule-item {
