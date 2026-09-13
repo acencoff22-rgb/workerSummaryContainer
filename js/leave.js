@@ -7,7 +7,6 @@ import {
 import {
   appData,
   setAppData,
-  selectedDetailDateKey,
 } from "./state.js";
 
 import {
@@ -19,12 +18,7 @@ import {
 } from "./utils.js";
 
 import {
-  getJobForWorker,
-} from "./assignment.js";
-
-import {
   getWorkerLabel,
-  getJobLabel,
 } from "./settings.js";
 
 
@@ -32,7 +26,9 @@ export function getLeaveWorkers(
   dateKey,
 ) {
   return [
-    ...(appData.leave[dateKey] || []),
+    ...(
+      appData.leave?.[dateKey] || []
+    ),
   ];
 }
 
@@ -48,7 +44,7 @@ export function setLeaveWorkers(
     );
 
   const nextLeave = {
-    ...appData.leave,
+    ...(appData.leave || {}),
   };
 
   if (
@@ -60,22 +56,26 @@ export function setLeaveWorkers(
       normalized;
   }
 
-  setAppData({
+  const nextData = {
     ...appData,
     leave: nextLeave,
-  });
+  };
 
-  saveLocalData(appData);
+  setAppData(nextData);
+
+  saveLocalData(nextData);
+
+  return nextData;
 }
 
 
 export function getLeaveMapForMonth(
   year,
   month,
-  getMonthKey,
+  getMonthKeyFunction,
 ) {
   const prefix =
-    getMonthKey(
+    getMonthKeyFunction(
       year,
       month,
     );
@@ -86,7 +86,9 @@ export function getLeaveMapForMonth(
     const [
       dateKey,
       workers,
-    ] of Object.entries(appData.leave)
+    ] of Object.entries(
+      appData.leave || {},
+    )
   ) {
     if (
       dateKey.startsWith(
@@ -193,12 +195,33 @@ export function handleClearLeaves() {
     return false;
   }
 
-  setAppData({
+  const nextData = {
     ...appData,
     leave: {},
-  });
+  };
 
-  saveLocalData(appData);
+  setAppData(nextData);
+
+  saveLocalData(nextData);
+
+  document
+    .querySelectorAll(
+      "[data-leave-worker]",
+    )
+    .forEach(
+      (checkbox) => {
+        checkbox.checked = false;
+      },
+    );
+
+  const input =
+    document.getElementById(
+      "leaveDateInput",
+    );
+
+  if (input) {
+    input.value = "";
+  }
 
   return true;
 }
@@ -208,17 +231,21 @@ export function deleteLeave(
   dateKey,
 ) {
   const nextLeave = {
-    ...appData.leave,
+    ...(appData.leave || {}),
   };
 
   delete nextLeave[dateKey];
 
-  setAppData({
+  const nextData = {
     ...appData,
     leave: nextLeave,
-  });
+  };
 
-  saveLocalData(appData);
+  setAppData(nextData);
+
+  saveLocalData(nextData);
+
+  return true;
 }
 
 
@@ -234,7 +261,7 @@ export function renderLeaveList() {
 
   const entries =
     Object.entries(
-      appData.leave,
+      appData.leave || {},
     ).sort(
       (a, b) =>
         a[0].localeCompare(b[0]),
@@ -303,7 +330,9 @@ export function renderLeaveList() {
         .join(" · ");
 
     main.appendChild(date);
-    main.appendChild(workersText);
+    main.appendChild(
+      workersText,
+    );
 
     const deleteButton =
       document.createElement(
@@ -319,27 +348,23 @@ export function renderLeaveList() {
     deleteButton.textContent =
       "삭제";
 
+    deleteButton.dataset.date =
+      dateKey;
+
     deleteButton.addEventListener(
       "click",
       () => {
         deleteLeave(dateKey);
+
         renderLeaveList();
-        loadLeaveCheckboxes(dateKey);
       },
     );
 
     item.appendChild(main);
-    item.appendChild(deleteButton);
+    item.appendChild(
+      deleteButton,
+    );
 
     container.appendChild(item);
   }
-}
-
-
-export function validateLeaveDate(
-  dateKey,
-) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(
-    dateKey,
-  );
 }
