@@ -60,6 +60,10 @@ export function renderCalendar() {
   title.textContent =
     `${calendarYear}년 ${calendarMonth}월`;
 
+  /*
+   * 현재 생성된 배정표가 없다면
+   * 달력 자체를 만들지 않는다.
+   */
   if (
     currentOriginalSchedule.length === 0
   ) {
@@ -125,40 +129,42 @@ export function renderCalendar() {
     "토",
   ];
 
-  weekdays.forEach(
-    (
-      weekday,
-      index,
-    ) => {
-      const header =
-        document.createElement(
-          "div",
-        );
-
-      header.className =
-        "calendar-weekday";
-
-      header.textContent =
-        weekday;
-
-      if (index === 0) {
-        header.classList.add(
-          "sunday",
-        );
-      }
-
-      if (index === 6) {
-        header.classList.add(
-          "saturday",
-        );
-      }
-
-      calendar.appendChild(
-        header,
+  for (
+    let index = 0;
+    index < weekdays.length;
+    index += 1
+  ) {
+    const header =
+      document.createElement(
+        "div",
       );
-    },
-  );
 
+    header.className =
+      "calendar-weekday";
+
+    if (index === 0) {
+      header.classList.add(
+        "sunday",
+      );
+    }
+
+    if (index === 6) {
+      header.classList.add(
+        "saturday",
+      );
+    }
+
+    header.textContent =
+      weekdays[index];
+
+    calendar.appendChild(
+      header,
+    );
+  }
+
+  /*
+   * 해당 월 1일 이전의 빈 칸
+   */
   for (
     let index = 0;
     index < firstWeekday;
@@ -193,7 +199,9 @@ export function renderCalendar() {
       );
 
     const actualDay =
-      scheduleMap.get(key);
+      scheduleMap.get(
+        key,
+      );
 
     const cell =
       document.createElement(
@@ -203,12 +211,15 @@ export function renderCalendar() {
     cell.className =
       "calendar-day";
 
-    const weekday =
+    const date =
       new Date(
         calendarYear,
         calendarMonth - 1,
         dayNumber,
-      ).getDay();
+      );
+
+    const weekday =
+      date.getDay();
 
     if (
       weekday === 0 ||
@@ -234,7 +245,9 @@ export function renderCalendar() {
 
     const leaveWorkers =
       actualDay?.leaveWorkers ||
-      getLeaveWorkers(key);
+      getLeaveWorkers(
+        key,
+      );
 
     if (
       leaveWorkers.length > 0
@@ -319,7 +332,9 @@ export function renderCalendar() {
           "calendar-worker-name";
 
         name.textContent =
-          getWorkerLabel(worker);
+          getWorkerLabel(
+            worker,
+          );
 
         const jobElement =
           document.createElement(
@@ -353,7 +368,10 @@ export function renderCalendar() {
               : "미배정";
         }
 
-        row.appendChild(name);
+        row.appendChild(
+          name,
+        );
+
         row.appendChild(
           jobElement,
         );
@@ -383,6 +401,9 @@ export function renderCalendar() {
       assignment,
     );
 
+    /*
+     * 날짜 클릭 시 상세 모달을 연다.
+     */
     cell.addEventListener(
       "click",
       () => {
@@ -398,6 +419,9 @@ export function renderCalendar() {
     );
   }
 
+  /*
+   * 마지막 주의 남은 빈 칸
+   */
   const totalCells =
     firstWeekday +
     daysInMonth;
@@ -408,9 +432,12 @@ export function renderCalendar() {
   if (
     remainder !== 0
   ) {
+    const emptyCount =
+      7 - remainder;
+
     for (
-      let index = remainder;
-      index < 7;
+      let index = 0;
+      index < emptyCount;
       index += 1
     ) {
       const empty =
@@ -427,9 +454,34 @@ export function renderCalendar() {
     }
   }
 
-  container.innerHTML = "";
+  container.innerHTML =
+    "";
+
   container.appendChild(
     calendar,
+  );
+}
+
+
+function findScheduleDay(
+  schedule,
+  year,
+  month,
+  day,
+) {
+  if (
+    !Array.isArray(schedule)
+  ) {
+    return null;
+  }
+
+  return (
+    schedule.find(
+      (item) =>
+        item.year === year &&
+        item.month === month &&
+        item.day === day,
+    ) || null
   );
 }
 
@@ -468,7 +520,9 @@ export function createDetailAssignmentHtml(
 
     let jobText =
       actualJob
-        ? getJobLabel(actualJob)
+        ? getJobLabel(
+            actualJob,
+          )
         : "미배정";
 
     let className =
@@ -491,11 +545,17 @@ export function createDetailAssignmentHtml(
     rows.push(`
       <div class="detail-row">
         <span class="detail-worker">
-          ${escapeHtml(getWorkerLabel(worker))}
+          ${escapeHtml(
+            getWorkerLabel(
+              worker,
+            ),
+          )}
         </span>
 
         <span class="${className}">
-          ${escapeHtml(jobText)}
+          ${escapeHtml(
+            jobText,
+          )}
         </span>
       </div>
     `);
@@ -517,10 +577,68 @@ export function createDetailAssignmentHtml(
 }
 
 
+function createDetailLeaveHtml(
+  leaveWorkers,
+) {
+  if (
+    leaveWorkers.length > 0
+  ) {
+    return `
+      <div class="detail-section">
+
+        <h3 class="detail-section-title">
+          연차자
+        </h3>
+
+        <div class="leave-detail-list">
+          ${leaveWorkers
+            .map(
+              (worker) =>
+                `
+                  <span class="leave-badge active">
+                    ${escapeHtml(
+                      getWorkerLabel(
+                        worker,
+                      ),
+                    )}
+                  </span>
+                `,
+            )
+            .join("")}
+        </div>
+
+      </div>
+    `;
+  }
+
+  return `
+    <div class="detail-section">
+
+      <h3 class="detail-section-title">
+        연차
+      </h3>
+
+      <div class="detail-note">
+        연차자가 없습니다.
+      </div>
+
+    </div>
+  `;
+}
+
+
 export function openDayDetail(
   dateKey,
   scrollToLeave = false,
 ) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(
+      dateKey,
+    )
+  ) {
+    return;
+  }
+
   setSelectedDetailDateKey(
     dateKey,
   );
@@ -548,14 +666,14 @@ export function openDayDetail(
     return;
   }
 
-  const dateParts =
+  const [
+    year,
+    month,
+    day,
+  ] =
     dateKey
       .split("-")
       .map(Number);
-
-  const year = dateParts[0];
-  const month = dateParts[1];
-  const day = dateParts[2];
 
   const dateInfo =
     getDateInfo(
@@ -568,19 +686,19 @@ export function openDayDetail(
     `${year}년 ${month}월 ${day}일 (${getWeekdayName(dateInfo.weekday)})`;
 
   const actualDay =
-    currentSchedule.find(
-      (item) =>
-        item.year === year &&
-        item.month === month &&
-        item.day === day,
+    findScheduleDay(
+      currentSchedule,
+      year,
+      month,
+      day,
     );
 
   const originalDay =
-    currentOriginalSchedule.find(
-      (item) =>
-        item.year === year &&
-        item.month === month &&
-        item.day === day,
+    findScheduleDay(
+      currentOriginalSchedule,
+      year,
+      month,
+      day,
     );
 
   const leaveWorkers =
@@ -588,66 +706,39 @@ export function openDayDetail(
       dateKey,
     );
 
-  const parts = [];
-
-  parts.push(
+  const assignmentHtml =
     createDetailAssignmentHtml(
       actualDay,
       originalDay,
       leaveWorkers,
-    ),
-  );
+    );
 
-  if (
-    leaveWorkers.length > 0
-  ) {
-    parts.push(`
-      <div class="detail-section">
-        <h3 class="detail-section-title">
-          연차자
-        </h3>
-
-        <div class="leave-detail-list">
-          ${leaveWorkers
-            .map(
-              (worker) =>
-                `<span class="leave-badge active">${escapeHtml(getWorkerLabel(worker))}</span>`,
-            )
-            .join("")}
-        </div>
-      </div>
-    `);
-  } else {
-    parts.push(`
-      <div class="detail-section">
-        <h3 class="detail-section-title">
-          연차
-        </h3>
-
-        <div class="detail-note">
-          연차자가 없습니다.
-        </div>
-      </div>
-    `);
-  }
+  const leaveHtml =
+    createDetailLeaveHtml(
+      leaveWorkers,
+    );
 
   body.innerHTML =
-    parts.join("");
+    assignmentHtml +
+    leaveHtml;
 
-  modal.hidden = false;
+  modal.hidden =
+    false;
 
   document.body.classList.add(
     "modal-open",
   );
 
   if (scrollToLeave) {
-    const input =
+    const leaveInput =
       document.getElementById(
         "leaveDateInput",
       );
 
-    if (input) {
-      input.value = dateKey;
+    if (leaveInput) {
+      leaveInput.value =
+        dateKey;
+
       loadLeaveCheckboxes(
         dateKey,
       );
@@ -663,7 +754,8 @@ export function closeDayDetail() {
     );
 
   if (modal) {
-    modal.hidden = true;
+    modal.hidden =
+      true;
   }
 
   document.body.classList.remove(
@@ -711,19 +803,24 @@ export function handleDayDetailLeave() {
 export function moveCalendarMonth(
   offset,
 ) {
-  const date =
+  const current =
     new Date(
       calendarYear,
-      calendarMonth - 1 + offset,
+      calendarMonth - 1,
       1,
     );
 
+  current.setMonth(
+    current.getMonth() +
+      Number(offset || 0),
+  );
+
   setCalendarYear(
-    date.getFullYear(),
+    current.getFullYear(),
   );
 
   setCalendarMonth(
-    date.getMonth() + 1,
+    current.getMonth() + 1,
   );
 
   renderCalendar();
@@ -751,7 +848,23 @@ export function updateCalendarToGeneratedMonth() {
     month >= 1 &&
     month <= 12
   ) {
-    setCalendarYear(year);
-    setCalendarMonth(month);
+    setCalendarYear(
+      year,
+    );
+
+    setCalendarMonth(
+      month,
+    );
   }
+}
+
+
+export function getCurrentCalendarInfo() {
+  return {
+    year:
+      calendarYear,
+
+    month:
+      calendarMonth,
+  };
 }
