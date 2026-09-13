@@ -1,11 +1,13 @@
 "use strict";
 
 import {
+  STORAGE_KEY,
+} from "./config.js";
+
+import {
   appData,
   githubConfig,
   currentOriginalSchedule,
-  currentSchedule,
-  currentOriginalCounts,
   copiedText,
   setAppData,
   setCurrentSchedule,
@@ -16,9 +18,12 @@ import {
 } from "./state.js";
 
 import {
+  createEmptyData,
   normalizeData,
+  loadLocalData,
   saveLocalData,
-  calculateOriginalCounts as calculateStoredOriginalCounts,
+  calculateOriginalCounts,
+  deepClone,
 } from "./data.js";
 
 import {
@@ -29,23 +34,13 @@ import {
 } from "./assignment.js";
 
 import {
-  createEmptyData,
-} from "./data.js";
-
-import {
-  deepClone,
-} from "./data.js";
-
-import {
   getMonthKey,
   formatDateKey,
-  getFileDateString,
 } from "./utils.js";
 
 import {
   renderSchedule,
   renderEmptySummaries,
-  formatScheduleAsText,
 } from "./render.js";
 
 import {
@@ -76,7 +71,7 @@ import {
 } from "./theme.js";
 
 import {
-  loadGithubConfig,
+  initializeGithubConfig,
   updateGithubForm,
   updateGithubConfigStatus,
   handleSaveGithubConfig,
@@ -102,35 +97,6 @@ import {
 let initialized = false;
 
 
-function loadInitialLocalData() {
-  try {
-    const raw =
-      localStorage.getItem(
-        "assignment-app-data-v6",
-      );
-
-    if (!raw) {
-      return;
-    }
-
-    setAppData(
-      normalizeData(
-        JSON.parse(raw),
-      ),
-    );
-  } catch (error) {
-    console.error(
-      "초기 로컬 데이터 불러오기 실패:",
-      error,
-    );
-
-    setAppData(
-      createEmptyData(),
-    );
-  }
-}
-
-
 function updateDataStatus() {
   const element =
     document.getElementById(
@@ -143,23 +109,26 @@ function updateDataStatus() {
 
   const historyCount =
     Object.keys(
-      appData.history,
+      appData.history || {},
     ).length;
 
   let baselineTotal = 0;
 
   for (
     const worker of Object.keys(
-      appData.baseline,
+      appData.baseline || {},
     )
   ) {
     for (
       const job of Object.keys(
-        appData.baseline[worker],
+        appData.baseline[worker] || {},
       )
     ) {
       baselineTotal +=
-        appData.baseline[worker][job];
+        Number(
+          appData.baseline[worker][job] ||
+            0,
+        );
     }
   }
 
@@ -198,6 +167,22 @@ function updateNameSettingsStatus(
     "success",
     success,
   );
+}
+
+
+function refreshLeaveAndCalendar() {
+  renderLeaveList();
+  renderCalendar();
+
+  if (
+    currentOriginalSchedule.length > 0
+  ) {
+    renderSchedule();
+  } else {
+    renderEmptySummaries();
+  }
+
+  updateDataStatus();
 }
 
 
@@ -322,34 +307,32 @@ function handleGenerate() {
           );
 
         const originalCounts =
-          calculateStoredOriginalCounts(
+          calculateOriginalCounts(
             schedule,
           );
 
         const scheduleWithLeave =
           schedule.map(
-            (day) => ({
-              ...day,
+            (day) => {
+              const dateKey =
+                formatDateKey(
+                  day.year,
+                  day.month,
+                  day.day,
+                );
 
-              leaveWorkers:
-                appData.leave[
-                  formatDateKey(
-                    day.year,
-                    day.month,
-                    day.day,
-                  )
-                ]
-                  ? [
-                      ...appData.leave[
-                        formatDateKey(
-                          day.year,
-                          day.month,
-                          day.day,
-                        )
-                      ],
-                    ]
-                  : [],
-            }),
+              const leaveWorkers =
+                (
+                  appData.leave?.[
+                    dateKey
+                  ] || []
+                ).slice();
+
+              return {
+                ...day,
+                leaveWorkers,
+              };
+            },
           );
 
         setCurrentOriginalSchedule(
@@ -370,8 +353,28 @@ function handleGenerate() {
             month,
           );
 
+        const monthLeave = {};
+
+        for (
+          const [
+            dateKey,
+            workers,
+          ] of Object.entries(
+            appData.leave || {},
+          )
+        ) {
+          if (
+            dateKey.startsWith(
+              `${monthKey}-`,
+            )
+          ) {
+            monthLeave[dateKey] =
+              [...workers];
+          }
+        }
+
         const nextHistory = {
-          ...appData.history,
+          ...(appData.history || {}),
         };
 
         nextHistory[monthKey] = {
@@ -385,45 +388,26 @@ function handleGenerate() {
               originalCounts,
             ),
 
-          leave: {},
+          leave:
+            monthLeave,
         };
 
-        for (
-          const [
-            dateKey,
-            workers,
-          ] of Object.entries(
-            appData.leave,
-          )
-        ) {
-          if (
-            dateKey.startsWith(
-              `${monthKey}-`,
-            )
-          ) {
-            nextHistory[
-              monthKey
-            ].leave[dateKey] =
-              [...workers];
-          }
-        }
-
-        setAppData({
+        const nextData = {
           ...appData,
           history:
             nextHistory,
-        });
+        };
+
+        setAppData(nextData);
+
+        saveLocalData(nextData);
 
         cleanupOldHistory(
           year,
           month,
         );
 
-        saveLocalData(appData);
-
-        renderSchedule();
-        renderLeaveList();
-        updateDataStatus();
+        refreshLeaveAndCalendar();
       } catch (error) {
         console.error(
           "배정 실패:",
@@ -595,10 +579,55 @@ async function handleCopy() {
       alert(
         "복사에 실패했습니다.",
       );
+    } finally {
+      textarea.remove();
     }
-
-    textarea.remove();
   }
+}
+
+
+async function handleRepositoryLoad() {
+  const loaded =
+    await loadRepositoryData(
+      true,
+    );
+
+  if (!loaded) {
+    return;
+  }
+
+  resetRuntimeState();
+
+  renderNameSettings();
+  updateLeaveWorkerLabels();
+  renderLeaveList();
+  renderEmptySummaries();
+  renderCalendar();
+  updateDataStatus();
+}
+
+
+function handleSaveLeaveAndRender() {
+  const saved =
+    handleSaveLeave();
+
+  if (!saved) {
+    return;
+  }
+
+  refreshLeaveAndCalendar();
+}
+
+
+function handleClearLeavesAndRender() {
+  const cleared =
+    handleClearLeaves();
+
+  if (!cleared) {
+    return;
+  }
+
+  refreshLeaveAndCalendar();
 }
 
 
@@ -692,20 +721,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "click",
-      () => {
-        if (
-          handleSaveLeave()
-        ) {
-          renderLeaveList();
-          renderCalendar();
-
-          if (
-            currentOriginalSchedule.length > 0
-          ) {
-            renderSchedule();
-          }
-        }
-      },
+      handleSaveLeaveAndRender,
     );
 
   document
@@ -714,20 +730,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "click",
-      () => {
-        if (
-          handleClearLeaves()
-        ) {
-          renderLeaveList();
-          renderCalendar();
-
-          if (
-            currentOriginalSchedule.length > 0
-          ) {
-            renderSchedule();
-          }
-        }
-      },
+      handleClearLeavesAndRender,
     );
 
   document
@@ -745,19 +748,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "click",
-      async () => {
-        const loaded =
-          await handleTestGithub();
-
-        if (loaded) {
-          resetRuntimeState();
-
-          renderLeaveList();
-          renderEmptySummaries();
-          renderCalendar();
-          updateDataStatus();
-        }
-      },
+      handleRepositoryLoad,
     );
 
   document
@@ -793,21 +784,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "click",
-      async () => {
-        const loaded =
-          await loadRepositoryData(
-            true,
-          );
-
-        if (loaded) {
-          resetRuntimeState();
-
-          renderLeaveList();
-          renderEmptySummaries();
-          renderCalendar();
-          updateDataStatus();
-        }
-      },
+      handleRepositoryLoad,
     );
 
   document
@@ -830,6 +807,11 @@ function bindEvents() {
 
         window.setTimeout(
           () => {
+            renderNameSettings();
+            updateLeaveWorkerLabels();
+            renderLeaveList();
+            renderEmptySummaries();
+            renderCalendar();
             updateDataStatus();
           },
           50,
@@ -847,6 +829,11 @@ function bindEvents() {
         if (
           handleClearData()
         ) {
+          renderNameSettings();
+          updateLeaveWorkerLabels();
+          renderLeaveList();
+          renderEmptySummaries();
+          renderCalendar();
           updateDataStatus();
         }
       },
@@ -955,9 +942,14 @@ async function initializeApp() {
 
   restoreTheme();
 
-  loadInitialLocalData();
+  const localData =
+    loadLocalData();
 
-  loadGithubConfig();
+  setAppData(
+    localData || createEmptyData(),
+  );
+
+  initializeGithubConfig();
 
   updateGithubForm();
   updateGithubConfigStatus();
