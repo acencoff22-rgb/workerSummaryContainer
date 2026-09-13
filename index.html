@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+  <meta
+    name="description"
+    content="작업자 업무 자동 배정표 생성기"
+  >
+  <title>업무 배정표 자동 생성기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <header class="app-header">
+      <div>
+        <h1>업무 배정표 자동 생성기</h1>
+        <p>
+          작업 규칙과 업무 균형을 기준으로 월간 배정표를 자동 생성합니다.
+        </p>
+      </div>
+
+      <button
+        id="themeToggle"
+        class="secondary-button"
+        type="button"
+      >
+        다크모드
+      </button>
+    </header>
+
+    <main>
+
+      <section class="panel">
+        <h2>배정 기간</h2>
+
+        <div class="form-grid">
+          <label>
+            연도
+            <input
+              id="yearInput"
+              type="number"
+              min="2020"
+              max="2100"
+              value="2026"
+            >
+          </label>
+
+          <label>
+            월
+            <input
+              id="monthInput"
+              type="number"
+              min="1"
+              max="12"
+              value="9"
+            >
+          </label>
+
+          <label>
+            시작일
+            <input
+              id="startDayInput"
+              type="number"
+              min="1"
+              max="31"
+              value="15"
+            >
+          </label>
+
+          <label>
+            종료일
+            <input
+              id="endDayInput"
+              type="number"
+              min="1"
+              max="31"
+              value="30"
+            >
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button
+            id="generateButton"
+            class="primary-button"
+            type="button"
+          >
+            자동 배정
+          </button>
+
+          <button
+            id="copyButton"
+            class="secondary-button"
+            type="button"
+          >
+            텍스트 복사
+          </button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>작업 규칙</h2>
+
+        <div class="rule-list">
+          <div class="rule-item">
+            <strong>볼분리</strong>
+            <span>김 · 탁 · 임</span>
+          </div>
+
+          <div class="rule-item">
+            <strong>볼분리 보조</strong>
+            <span>김 · 탁 · 임</span>
+          </div>
+
+          <div class="rule-item">
+            <strong>류</strong>
+            <span>
+              설거지 및 성형보조 /
+              분쇄 및 성형보조 /
+              성형 및 분쇄보조
+            </span>
+          </div>
+
+          <div class="rule-item">
+            <strong>박</strong>
+            <span>
+              설거지 및 성형보조 /
+              분쇄 및 성형보조
+            </span>
+          </div>
+
+          <div class="rule-item">
+            <strong>우선순위</strong>
+            <span>
+              김·탁·임 볼분리 균등 →
+              볼분리 보조 균등 →
+              전체 업무 균형
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <h2>생성 결과</h2>
+
+          <span id="statusText" class="status">
+            아직 생성되지 않았습니다.
+          </span>
+        </div>
+
+        <pre
+          id="resultText"
+          class="result-text"
+        ></pre>
+      </section>
+
+      <section class="panel">
+        <h2>업무별 횟수</h2>
+
+        <div id="summaryContainer" class="summary-grid">
+          <div class="empty-state">
+            배정표를 생성하면 횟수가 표시됩니다.
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>작업자별 횟수</h2>
+
+        <div id="workerSummaryContainer">
+          <div class="empty-state">
+            배정표를 생성하면 작업자별 횟수가 표시됩니다.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      <p>
+        GitHub Pages에서 직접 실행할 수 있는 클라이언트형 버전
+      </p>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
