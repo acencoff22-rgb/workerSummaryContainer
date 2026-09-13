@@ -3,15 +3,25 @@
 /*
  * 업무 배정표 자동 생성기
  *
- * 핵심 규칙
- * 1. 하루 5개 업무는 각각 한 번씩 배정
- * 2. 볼분리 -> 김/탁/임만
- * 3. 볼분리 보조 -> 김/탁/임만
- * 4. 박 -> 설거지 및 성형보조 / 분쇄 및 성형보조
- * 5. 류는 나머지 3개 업무를 순환
- * 6. 박에게 성형 및 분쇄보조가 발생하면
- *    박과 분쇄 및 성형보조 담당자를 교환
- * 7. 김/탁/임의 볼분리 횟수 균등을 가장 높은 우선순위로 적용
+ * 현재 확정 규칙
+ *
+ * 1. 하루 5개 업무는 각각 정확히 1번씩 배정
+ * 2. 한 작업자는 하루에 1개 업무만 담당
+ * 3. 볼분리 -> 김 / 탁 / 임
+ * 4. 볼분리 보조 -> 김 / 탁 / 임
+ * 5. 류 -> 나머지 3개 업무 모두 가능
+ * 6. 박 -> 설거지 및 성형보조 / 분쇄 및 성형보조만 가능
+ * 7. 김·탁·임의 볼분리 횟수 균형을 최우선
+ * 8. 그 다음 볼분리 보조 균형
+ * 9. 그 다음 전체 업무량 균형
+ * 10. 류의 3개 업무 균형
+ * 11. 같은 업무의 연속 배정은 가능한 한 줄임
+ *
+ * 주의
+ * ---------------------------------------------
+ * 박의 "성형 및 분쇄보조" 교환 규칙은
+ * 이후 실제 운용 규칙을 확정한 뒤 별도의
+ * 교환 단계로 넣을 수 있도록 구조를 분리한다.
  */
 
 const WORKERS = [
@@ -36,7 +46,7 @@ const BOWL_WORKERS = [
   "임",
 ];
 
-const EXTRA_JOB_FOR_LIU = [
+const LIU_JOBS = [
   "설거지 및 성형보조",
   "분쇄 및 성형보조",
   "성형 및 분쇄보조",
@@ -50,9 +60,9 @@ const PARK_ALLOWED_JOBS = [
 let currentSchedule = [];
 let copiedText = "";
 
-/* -------------------------------------------
- * 유틸리티
- * ----------------------------------------- */
+/* =========================================================
+ * 기본 유틸리티
+ * ======================================================= */
 
 function createEmptyWorkerCounts() {
   const result = {};
@@ -78,43 +88,24 @@ function createEmptyJobCounts() {
   return result;
 }
 
-function cloneAssignment(assignment) {
-  return {
-    ...assignment,
-  };
-}
-
 function shuffle(array) {
-  const copied = [...array];
+  const result = [...array];
 
-  for (let i = copied.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const randomIndex = Math.floor(
+      Math.random() * (i + 1),
+    );
 
     [
-      copied[i],
-      copied[j],
+      result[i],
+      result[randomIndex],
     ] = [
-      copied[j],
-      copied[i],
+      result[randomIndex],
+      result[i],
     ];
   }
 
-  return copied;
-}
-
-function normalizeDateParts(year, month, day) {
-  const date = new Date(
-    year,
-    month - 1,
-    day,
-  );
-
-  return {
-    year: date.getFullYear(),
-    month: date.getMonth() + 1,
-    day: date.getDate(),
-    weekday: date.getDay(),
-  };
+  return result;
 }
 
 function getWeekdayName(weekday) {
@@ -131,11 +122,29 @@ function getWeekdayName(weekday) {
   return names[weekday];
 }
 
-/* -------------------------------------------
- * 기본 규칙 검증
- * ----------------------------------------- */
+function getDateInfo(year, month, day) {
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+  );
+
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+    weekday: date.getDay(),
+  };
+}
+
+/* =========================================================
+ * 업무 가능 여부
+ * ======================================================= */
 
 function isAllowed(worker, job) {
+  /*
+   * 볼분리 계열
+   */
   if (
     job === "볼분리" ||
     job === "볼분리 보조"
@@ -143,28 +152,128 @@ function isAllowed(worker, job) {
     return BOWL_WORKERS.includes(worker);
   }
 
+  /*
+   * 박
+   */
   if (worker === "박") {
     return PARK_ALLOWED_JOBS.includes(job);
   }
 
+  /*
+   * 류
+   */
   if (worker === "류") {
-    return EXTRA_JOB_FOR_LIU.includes(job);
+    return LIU_JOBS.includes(job);
   }
 
+  /*
+   * 김 / 탁 / 임은 나머지 업무 가능
+   */
   return true;
 }
 
-/* -------------------------------------------
- * 점수 계산
- * 낮을수록 좋은 배정
- * ----------------------------------------- */
+/* =========================================================
+ * 배열 순열 생성
+ * ======================================================= */
 
-function calculateScore(
-  schedule,
-  candidate,
-) {
-  const workerCounts = createEmptyWorkerCounts();
-  const jobCounts = createEmptyJobCounts();
+function generatePermutations(items) {
+  if (items.length <= 1) {
+    return [items.slice()];
+  }
+
+  const result = [];
+
+  for (let i = 0; i < items.length; i += 1) {
+    const current = items[i];
+
+    const remaining = [
+      ...items.slice(0, i),
+      ...items.slice(i + 1),
+    ];
+
+    const permutations =
+      generatePermutations(remaining);
+
+    for (const permutation of permutations) {
+      result.push([
+        current,
+        ...permutation,
+      ]);
+    }
+  }
+
+  return result;
+}
+
+/* =========================================================
+ * 하루 전체 후보 생성
+ *
+ * 핵심:
+ * 업무 5개와 작업자 5명의 모든 1:1 대응을 만든 뒤
+ * 규칙에 맞지 않는 후보를 제거한다.
+ *
+ * 5! = 120가지이므로 브라우저에서 충분히 처리 가능하다.
+ * ======================================================= */
+
+function generateDailyCandidates() {
+  const candidates = [];
+
+  const workerPermutations =
+    generatePermutations(
+      WORKERS,
+    );
+
+  for (const workerOrder of workerPermutations) {
+    const candidate = {};
+
+    let valid = true;
+
+    for (let i = 0; i < JOBS.length; i += 1) {
+      const job = JOBS[i];
+      const worker = workerOrder[i];
+
+      if (!isAllowed(worker, job)) {
+        valid = false;
+        break;
+      }
+
+      candidate[job] = worker;
+    }
+
+    if (!valid) {
+      continue;
+    }
+
+    /*
+     * 모든 업무가 정확히 한 번씩 들어갔고
+     * 작업자도 정확히 한 명씩 사용됐는지 확인
+     */
+    const usedWorkers = JOBS.map(
+      (job) => candidate[job],
+    );
+
+    if (
+      new Set(usedWorkers).size !== WORKERS.length
+    ) {
+      continue;
+    }
+
+    candidates.push(candidate);
+  }
+
+  return candidates;
+}
+
+/* =========================================================
+ * 이전 누적 횟수 계산
+ * ======================================================= */
+
+function calculateCounts(schedule) {
+  const workerCounts =
+    createEmptyWorkerCounts();
+
+  const jobCounts =
+    createEmptyJobCounts();
 
   for (const day of schedule) {
     for (const job of JOBS) {
@@ -179,385 +288,302 @@ function calculateScore(
     }
   }
 
-  const nextWorkerCounts = createEmptyWorkerCounts();
-  const nextJobCounts = {
-    ...jobCounts,
+  return {
+    workerCounts,
+    jobCounts,
   };
+}
 
-  for (const job of JOBS) {
-    const worker = candidate[job];
+/* =========================================================
+ * 류 업무 편중 점수
+ * ======================================================= */
 
-    if (!worker) {
-      continue;
+function calculateLiuBalancePenalty(
+  workerCounts,
+  candidate,
+) {
+  const counts = [];
+
+  for (const job of LIU_JOBS) {
+    let count =
+      workerCounts["류"][job];
+
+    if (candidate[job] === "류") {
+      count += 1;
     }
 
-    nextWorkerCounts[worker][job] += 1;
-    nextJobCounts[job] += 1;
+    counts.push(count);
   }
 
-  /*
-   * 1순위: 김·탁·임의 볼분리 균형
-   */
-  const bowlCounts = BOWL_WORKERS.map(
-    (worker) =>
-      workerCounts[worker]["볼분리"] +
-      (candidate["볼분리"] === worker ? 1 : 0),
-  );
+  const max = Math.max(...counts);
+  const min = Math.min(...counts);
 
-  const bowlMax = Math.max(...bowlCounts);
-  const bowlMin = Math.min(...bowlCounts);
+  return max - min;
+}
 
-  let score = 0;
+/* =========================================================
+ * 김·탁·임 볼분리 균형
+ *
+ * 최우선 조건
+ * ======================================================= */
 
-  score += (bowlMax - bowlMin) * 100000;
-
-  /*
-   * 2순위: 김·탁·임의 볼분리 보조 균형
-   */
-  const bowlHelperCounts = BOWL_WORKERS.map(
-    (worker) =>
-      workerCounts[worker]["볼분리 보조"] +
-      (candidate["볼분리 보조"] === worker ? 1 : 0),
-  );
-
-  const helperMax = Math.max(
-    ...bowlHelperCounts,
-  );
-
-  const helperMin = Math.min(
-    ...bowlHelperCounts,
-  );
-
-  score += (helperMax - helperMin) * 10000;
-
-  /*
-   * 3순위: 김·탁·임 전체 업무량 균형
-   */
-  const workerTotalCounts =
-    BOWL_WORKERS.map((worker) => {
-      let total = 0;
-
-      for (const job of JOBS) {
-        total +=
-          workerCounts[worker][job];
-
-        if (candidate[job] === worker) {
-          total += 1;
-        }
-      }
-
-      return total;
-    });
-
-  const workerTotalMax = Math.max(
-    ...workerTotalCounts,
-  );
-
-  const workerTotalMin = Math.min(
-    ...workerTotalCounts,
-  );
-
-  score +=
-    (workerTotalMax - workerTotalMin) * 1000;
-
-  /*
-   * 4순위: 류의 세 업무 균형
-   */
-  const liuCounts =
-    EXTRA_JOB_FOR_LIU.map((job) => {
-      return (
-        workerCounts["류"][job] +
-        (candidate[job] === "류" ? 1 : 0)
-      );
-    });
-
-  const liuMax = Math.max(...liuCounts);
-  const liuMin = Math.min(...liuCounts);
-
-  score += (liuMax - liuMin) * 500;
-
-  /*
-   * 5순위: 전체 업무량 균형
-   *
-   * 한 사람에게 일이 지나치게 몰리는 것을 방지
-   */
-  const allWorkerTotals = WORKERS.map(
+function calculateBowlPenalty(
+  workerCounts,
+  candidate,
+) {
+  const counts = BOWL_WORKERS.map(
     (worker) => {
-      let total = 0;
+      let count =
+        workerCounts[worker]["볼분리"];
 
-      for (const job of JOBS) {
-        total += workerCounts[worker][job];
-
-        if (candidate[job] === worker) {
-          total += 1;
-        }
+      if (candidate["볼분리"] === worker) {
+        count += 1;
       }
 
-      return total;
+      return count;
     },
   );
 
-  const allMax = Math.max(
-    ...allWorkerTotals,
-  );
+  const max = Math.max(...counts);
+  const min = Math.min(...counts);
 
-  const allMin = Math.min(
-    ...allWorkerTotals,
-  );
-
-  score +=
-    (allMax - allMin) * 50;
-
-  /*
-   * 6순위: 같은 업무 연속 완화
-   */
-  const previous = schedule.length > 0
-    ? schedule[schedule.length - 1]
-    : null;
-
-  if (previous) {
-    for (const job of JOBS) {
-      if (
-        previous[job] === candidate[job]
-      ) {
-        score += 5;
-      }
-    }
-  }
-
-  return score;
+  return max - min;
 }
 
-/* -------------------------------------------
- * 하루 후보 생성
- * ----------------------------------------- */
+/* =========================================================
+ * 김·탁·임 볼분리 보조 균형
+ * ======================================================= */
 
-function generateDailyCandidates() {
-  const candidates = [];
+function calculateBowlHelperPenalty(
+  workerCounts,
+  candidate,
+) {
+  const counts =
+    BOWL_WORKERS.map(
+      (worker) => {
+        let count =
+          workerCounts[worker]["볼분리 보조"];
 
-  for (
-    const bowlWorker of shuffle(BOWL_WORKERS)
-  ) {
-    const remainingBowlWorkers =
-      BOWL_WORKERS.filter(
-        (worker) => worker !== bowlWorker,
+        if (
+          candidate["볼분리 보조"] === worker
+        ) {
+          count += 1;
+        }
+
+        return count;
+      },
+    );
+
+  const max = Math.max(...counts);
+  const min = Math.min(...counts);
+
+  return max - min;
+}
+
+/* =========================================================
+ * 김·탁·임 전체 업무량 균형
+ * ======================================================= */
+
+function calculateMainWorkerTotalPenalty(
+  workerCounts,
+  candidate,
+) {
+  const totals =
+    BOWL_WORKERS.map(
+      (worker) => {
+        let total = 0;
+
+        for (const job of JOBS) {
+          total +=
+            workerCounts[worker][job];
+
+          if (
+            candidate[job] === worker
+          ) {
+            total += 1;
+          }
+        }
+
+        return total;
+      },
+    );
+
+  const max = Math.max(...totals);
+  const min = Math.min(...totals);
+
+  return max - min;
+}
+
+/* =========================================================
+ * 전체 작업자 업무량 균형
+ * ======================================================= */
+
+function calculateAllWorkerTotalPenalty(
+  workerCounts,
+  candidate,
+) {
+  const totals =
+    WORKERS.map(
+      (worker) => {
+        let total = 0;
+
+        for (const job of JOBS) {
+          total +=
+            workerCounts[worker][job];
+
+          if (
+            candidate[job] === worker
+          ) {
+            total += 1;
+          }
+        }
+
+        return total;
+      },
+    );
+
+  const max = Math.max(...totals);
+  const min = Math.min(...totals);
+
+  return max - min;
+}
+
+/* =========================================================
+ * 같은 업무 연속 배정 패널티
+ * ======================================================= */
+
+function calculateConsecutivePenalty(
+  schedule,
+  candidate,
+) {
+  if (schedule.length === 0) {
+    return 0;
+  }
+
+  const previous =
+    schedule[schedule.length - 1];
+
+  let penalty = 0;
+
+  for (const worker of WORKERS) {
+    const previousJob =
+      getJobForWorker(
+        previous,
+        worker,
       );
 
-    for (
-      const bowlHelper of shuffle(
-        remainingBowlWorkers,
-      )
+    const currentJob =
+      getJobForWorker(
+        candidate,
+        worker,
+      );
+
+    if (
+      previousJob &&
+      previousJob === currentJob
     ) {
-      const candidatePool = [
-        bowlWorker,
-        bowlHelper,
-      ];
-
-      const remainingWorkers =
-        WORKERS.filter(
-          (worker) =>
-            !candidatePool.includes(worker),
-        );
-
-      const remainingJobs = [
-        "설거지 및 성형보조",
-        "분쇄 및 성형보조",
-        "성형 및 분쇄보조",
-      ];
-
-      /*
-       * 류는 반드시 세 업무 중 하나를 담당.
-       *
-       * 박은 두 업무만 가능하므로
-       * 실제 조합을 만든 뒤 박 교환 규칙을 적용한다.
-       */
-      for (
-        const liuJob of shuffle(
-          remainingJobs,
-        )
-      ) {
-        const candidate = {
-          "볼분리": bowlWorker,
-          "볼분리 보조": bowlHelper,
-        };
-
-        candidate[liuJob] = "류";
-
-        const parkJobs =
-          remainingJobs.filter(
-            (job) => job !== liuJob,
-          );
-
-        for (
-          const parkJob of shuffle(parkJobs)
-        ) {
-          const otherJob =
-            parkJobs.find(
-              (job) => job !== parkJob,
-            );
-
-          const remainingTwoWorkers =
-            remainingWorkers.filter(
-              (worker) => worker !== "류",
-            );
-
-          if (
-            remainingTwoWorkers.length !== 2
-          ) {
-            continue;
-          }
-
-          const candidateCopy = {
-            ...candidate,
-          };
-
-          candidateCopy[parkJob] = "박";
-
-          candidateCopy[otherJob] =
-            remainingTwoWorkers.find(
-              (worker) =>
-                worker !== "박" &&
-                worker !== "류",
-            );
-
-          /*
-           * 박이 허용되지 않는 업무를 맡았으면
-           * 분쇄 업무 담당자와 교환한다.
-           */
-          if (
-            !isAllowed(
-              "박",
-              candidateCopy[parkJob],
-            )
-          ) {
-            continue;
-          }
-
-          let valid = true;
-
-          for (const job of JOBS) {
-            const worker = candidateCopy[job];
-
-            if (!worker) {
-              valid = false;
-              break;
-            }
-
-            if (!isAllowed(worker, job)) {
-              valid = false;
-              break;
-            }
-          }
-
-          if (!valid) {
-            continue;
-          }
-
-          /*
-           * 모든 작업자가 정확히 한 업무씩 맡는지 확인
-           */
-          const workersUsed = JOBS.map(
-            (job) => candidateCopy[job],
-          );
-
-          const uniqueWorkers =
-            new Set(workersUsed);
-
-          if (
-            uniqueWorkers.size !== 5
-          ) {
-            continue;
-          }
-
-          candidates.push(candidateCopy);
-        }
-      }
+      penalty += 1;
     }
   }
 
-  /*
-   * 위 방식만으로는 박 교환이 필요한 경우를
-   * 표현하기 어려우므로 추가 순열 후보도 만든다.
-   */
-  return candidates;
+  return penalty;
 }
 
-/* -------------------------------------------
- * 박 교환 규칙
+/* =========================================================
+ * 전체 후보 점수
  *
- * 박이 성형 및 분쇄보조를 맡게 되는 경우
- * 박의 업무를 분쇄 및 성형보조로,
- * 분쇄 및 성형보조 담당자를
- * 성형 및 분쇄보조로 변경한다.
- * ----------------------------------------- */
+ * 점수가 낮을수록 좋음
+ *
+ * 1순위: 볼분리
+ * 2순위: 볼분리 보조
+ * 3순위: 김·탁·임 업무량
+ * 4순위: 류 업무 균형
+ * 5순위: 전체 업무량
+ * 6순위: 연속 업무
+ * ======================================================= */
 
-function applyParkSwap(candidate) {
-  const result = cloneAssignment(candidate);
+function calculateCandidateScore(
+  schedule,
+  candidate,
+) {
+  const {
+    workerCounts,
+  } = calculateCounts(
+    schedule,
+  );
 
-  if (
-    result["성형 및 분쇄보조"] !== "박"
-  ) {
-    return result;
-  }
+  const bowlPenalty =
+    calculateBowlPenalty(
+      workerCounts,
+      candidate,
+    );
 
-  const grinderWorker =
-    result["분쇄 및 성형보조"];
+  const helperPenalty =
+    calculateBowlHelperPenalty(
+      workerCounts,
+      candidate,
+    );
 
-  if (!grinderWorker) {
-    return result;
-  }
+  const mainWorkerPenalty =
+    calculateMainWorkerTotalPenalty(
+      workerCounts,
+      candidate,
+    );
 
-  result["분쇄 및 성형보조"] = "박";
-  result["성형 및 분쇄보조"] =
-    grinderWorker;
+  const liuPenalty =
+    calculateLiuBalancePenalty(
+      workerCounts,
+      candidate,
+    );
+
+  const allWorkerPenalty =
+    calculateAllWorkerTotalPenalty(
+      workerCounts,
+      candidate,
+    );
+
+  const consecutivePenalty =
+    calculateConsecutivePenalty(
+      schedule,
+      candidate,
+    );
 
   /*
-   * 실제 의미상 박의 원래 업무는
-   * 분쇄 및 성형보조가 되어야 하고,
-   * 해당 업무 담당자는 성형 및 분쇄보조로
-   * 이동한다.
+   * 가중치는 우선순위를 명확하게 구분하기 위해
+   * 충분한 차이를 둔다.
    */
-  return result;
+  return (
+    bowlPenalty * 1000000 +
+    helperPenalty * 100000 +
+    mainWorkerPenalty * 10000 +
+    liuPenalty * 1000 +
+    allWorkerPenalty * 100 +
+    consecutivePenalty
+  );
 }
 
-/* -------------------------------------------
- * 하루 하나의 최적 후보 선택
- * ----------------------------------------- */
+/* =========================================================
+ * 하루 최적 배정 선택
+ * ======================================================= */
 
 function chooseBestDailyAssignment(
   schedule,
 ) {
-  let candidates =
+  const candidates =
     generateDailyCandidates();
-
-  candidates = candidates.map(
-    applyParkSwap,
-  );
-
-  candidates = candidates.filter(
-    (candidate) => {
-      const workers =
-        JOBS.map((job) => candidate[job]);
-
-      return (
-        workers.every(Boolean) &&
-        new Set(workers).size === 5
-      );
-    },
-  );
 
   if (candidates.length === 0) {
     throw new Error(
-      "현재 규칙으로 유효한 하루 배정을 만들 수 없습니다.",
+      "현재 설정된 업무 규칙으로 가능한 하루 배정을 찾을 수 없습니다.",
     );
   }
 
   let bestScore = Infinity;
   let bestCandidates = [];
 
-  for (const candidate of candidates) {
+  for (const candidate of shuffle(candidates)) {
     const score =
-      calculateScore(
+      calculateCandidateScore(
         schedule,
         candidate,
       );
@@ -572,20 +598,17 @@ function chooseBestDailyAssignment(
     }
   }
 
-  const selected =
-    bestCandidates[
-      Math.floor(
-        Math.random() *
-          bestCandidates.length,
-      )
-    ];
-
-  return selected;
+  return bestCandidates[
+    Math.floor(
+      Math.random() *
+        bestCandidates.length,
+    )
+  ];
 }
 
-/* -------------------------------------------
- * 월간 배정
- * ----------------------------------------- */
+/* =========================================================
+ * 월간 배정 생성
+ * ======================================================= */
 
 function generateSchedule(
   year,
@@ -600,7 +623,7 @@ function generateSchedule(
     !Number.isInteger(endDay)
   ) {
     throw new Error(
-      "날짜 입력값을 확인해주세요.",
+      "연도, 월, 시작일, 종료일을 확인해주세요.",
     );
   }
 
@@ -622,11 +645,25 @@ function generateSchedule(
 
   if (
     startDay < 1 ||
-    endDay > daysInMonth ||
-    startDay > endDay
+    startDay > daysInMonth
   ) {
     throw new Error(
-      `${year}년 ${month}월의 날짜 범위를 확인해주세요.`,
+      "시작일이 해당 월의 범위를 벗어났습니다.",
+    );
+  }
+
+  if (
+    endDay < 1 ||
+    endDay > daysInMonth
+  ) {
+    throw new Error(
+      "종료일이 해당 월의 범위를 벗어났습니다.",
+    );
+  }
+
+  if (startDay > endDay) {
+    throw new Error(
+      "시작일은 종료일보다 클 수 없습니다.",
     );
   }
 
@@ -638,7 +675,7 @@ function generateSchedule(
     day += 1
   ) {
     const dateInfo =
-      normalizeDateParts(
+      getDateInfo(
         year,
         month,
         day,
@@ -650,10 +687,7 @@ function generateSchedule(
       );
 
     schedule.push({
-      year: dateInfo.year,
-      month: dateInfo.month,
-      day: dateInfo.day,
-      weekday: dateInfo.weekday,
+      ...dateInfo,
       ...assignment,
     });
   }
@@ -661,43 +695,54 @@ function generateSchedule(
   return schedule;
 }
 
-/* -------------------------------------------
- * 검증
- * ----------------------------------------- */
+/* =========================================================
+ * 배정표 검증
+ * ======================================================= */
 
 function validateSchedule(schedule) {
   const errors = [];
 
   for (const day of schedule) {
-    const workers = JOBS.map(
-      (job) => day[job],
-    );
-
-    if (
-      workers.some(
-        (worker) => !worker,
-      )
-    ) {
-      errors.push(
-        `${day.day}일: 미배정 업무가 있습니다.`,
-      );
-      continue;
+    /*
+     * 5개 업무 모두 존재하는지
+     */
+    for (const job of JOBS) {
+      if (!day[job]) {
+        errors.push(
+          `${day.month}월 ${day.day}일: ${job} 미배정`,
+        );
+      }
     }
+
+    /*
+     * 작업자가 중복되지 않는지
+     */
+    const workers =
+      JOBS.map(
+        (job) => day[job],
+      ).filter(Boolean);
 
     if (
       new Set(workers).size !== 5
     ) {
       errors.push(
-        `${day.day}일: 한 사람이 두 업무를 맡았습니다.`,
+        `${day.month}월 ${day.day}일: 작업자 중복 배정`,
       );
     }
 
+    /*
+     * 각 업무의 허용 작업자 확인
+     */
     for (const job of JOBS) {
       const worker = day[job];
 
+      if (!worker) {
+        continue;
+      }
+
       if (!isAllowed(worker, job)) {
         errors.push(
-          `${day.day}일: ${worker}에게 ${job} 배정 불가`,
+          `${day.month}월 ${day.day}일: ${worker}에게 ${job} 배정 불가`,
         );
       }
     }
@@ -706,80 +751,9 @@ function validateSchedule(schedule) {
   return errors;
 }
 
-/* -------------------------------------------
- * 횟수 계산
- * ----------------------------------------- */
-
-function calculateSummary(schedule) {
-  const jobCounts =
-    createEmptyJobCounts();
-
-  const workerCounts =
-    createEmptyWorkerCounts();
-
-  for (const day of schedule) {
-    for (const job of JOBS) {
-      const worker = day[job];
-
-      if (!worker) {
-        continue;
-      }
-
-      jobCounts[job] += 1;
-      workerCounts[worker][job] += 1;
-    }
-  }
-
-  return {
-    jobCounts,
-    workerCounts,
-  };
-}
-
-/* -------------------------------------------
- * 텍스트 출력
- * ----------------------------------------- */
-
-function formatScheduleAsText(
-  schedule,
-) {
-  const lines = [];
-
-  lines.push(
-    `${schedule[0].year}년 ${schedule[0].month}월 업무 배정표`,
-  );
-  lines.push("");
-
-  for (const day of schedule) {
-    lines.push(
-      `### ${day.month}월 ${day.day}일 (${getWeekdayName(day.weekday)})`,
-    );
-
-    lines.push(
-      `김 → ${getJobForWorker(day, "김")}`,
-    );
-
-    lines.push(
-      `탁 → ${getJobForWorker(day, "탁")}`,
-    );
-
-    lines.push(
-      `임 → ${getJobForWorker(day, "임")}`,
-    );
-
-    lines.push(
-      `박 → ${getJobForWorker(day, "박")}`,
-    );
-
-    lines.push(
-      `류 → ${getJobForWorker(day, "류")}`,
-    );
-
-    lines.push("");
-  }
-
-  return lines.join("\n");
-}
+/* =========================================================
+ * 텍스트 변환
+ * ======================================================= */
 
 function getJobForWorker(
   day,
@@ -791,12 +765,272 @@ function getJobForWorker(
     }
   }
 
-  return "미배정";
+  return null;
 }
 
-/* -------------------------------------------
- * 화면 렌더링
- * ----------------------------------------- */
+function formatScheduleAsText(
+  schedule,
+) {
+  if (schedule.length === 0) {
+    return "";
+  }
+
+  const firstDay =
+    schedule[0];
+
+  const lines = [];
+
+  lines.push(
+    `${firstDay.year}년 ${firstDay.month}월 업무 배정표`,
+  );
+
+  lines.push("");
+
+  for (const day of schedule) {
+    lines.push(
+      `### ${day.month}월 ${day.day}일`,
+    );
+
+    lines.push(
+      `김 → ${getJobForWorker(day, "김") || "미배정"}`,
+    );
+
+    lines.push(
+      `탁 → ${getJobForWorker(day, "탁") || "미배정"}`,
+    );
+
+    lines.push(
+      `임 → ${getJobForWorker(day, "임") || "미배정"}`,
+    );
+
+    lines.push(
+      `박 → ${getJobForWorker(day, "박") || "미배정"}`,
+    );
+
+    lines.push(
+      `류 → ${getJobForWorker(day, "류") || "미배정"}`,
+    );
+
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+/* =========================================================
+ * 요약 계산
+ * ======================================================= */
+
+function calculateSummary(schedule) {
+  const {
+    workerCounts,
+    jobCounts,
+  } = calculateCounts(
+    schedule,
+  );
+
+  return {
+    workerCounts,
+    jobCounts,
+  };
+}
+
+/* =========================================================
+ * 업무별 요약 화면
+ * ======================================================= */
+
+function renderJobSummary() {
+  const container =
+    document.getElementById(
+      "summaryContainer",
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const {
+    jobCounts,
+  } = calculateSummary(
+    currentSchedule,
+  );
+
+  container.innerHTML = "";
+
+  for (const job of JOBS) {
+    const card =
+      document.createElement(
+        "div",
+      );
+
+    card.className =
+      "summary-card";
+
+    const label =
+      document.createElement(
+        "span",
+      );
+
+    label.className = "label";
+    label.textContent = job;
+
+    const value =
+      document.createElement(
+        "span",
+      );
+
+    value.className = "value";
+    value.textContent =
+      `${jobCounts[job]}회`;
+
+    card.appendChild(label);
+    card.appendChild(value);
+
+    container.appendChild(card);
+  }
+}
+
+/* =========================================================
+ * 작업자별 요약 화면
+ * ======================================================= */
+
+function renderWorkerSummary() {
+  const container =
+    document.getElementById(
+      "workerSummaryContainer",
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const {
+    workerCounts,
+  } = calculateSummary(
+    currentSchedule,
+  );
+
+  const wrapper =
+    document.createElement(
+      "div",
+    );
+
+  wrapper.className =
+    "worker-table-wrap";
+
+  const table =
+    document.createElement(
+      "table",
+    );
+
+  table.className =
+    "worker-table";
+
+  const thead =
+    document.createElement(
+      "thead",
+    );
+
+  const headerRow =
+    document.createElement(
+      "tr",
+    );
+
+  const headers = [
+    "작업자",
+    "볼분리",
+    "볼분리 보조",
+    "설거지",
+    "분쇄",
+    "성형",
+    "총합",
+  ];
+
+  for (const header of headers) {
+    const th =
+      document.createElement(
+        "th",
+      );
+
+    th.textContent = header;
+    headerRow.appendChild(th);
+  }
+
+  thead.appendChild(
+    headerRow,
+  );
+
+  const tbody =
+    document.createElement(
+      "tbody",
+    );
+
+  for (const worker of WORKERS) {
+    const row =
+      document.createElement(
+        "tr",
+      );
+
+    let total = 0;
+
+    for (const job of JOBS) {
+      total +=
+        workerCounts[worker][job];
+    }
+
+    const values = [
+      worker,
+      workerCounts[worker]["볼분리"],
+      workerCounts[worker]["볼분리 보조"],
+      workerCounts[worker]["설거지 및 성형보조"],
+      workerCounts[worker]["분쇄 및 성형보조"],
+      workerCounts[worker]["성형 및 분쇄보조"],
+      total,
+    ];
+
+    for (
+      let i = 0;
+      i < values.length;
+      i += 1
+    ) {
+      const td =
+        document.createElement(
+          "td",
+        );
+
+      if (i === values.length - 1) {
+        const strong =
+          document.createElement(
+            "strong",
+          );
+
+        strong.textContent =
+          String(values[i]);
+
+        td.appendChild(strong);
+      } else {
+        td.textContent =
+          String(values[i]);
+      }
+
+      row.appendChild(td);
+    }
+
+    tbody.appendChild(row);
+  }
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+
+  wrapper.appendChild(table);
+
+  container.innerHTML = "";
+  container.appendChild(wrapper);
+}
+
+/* =========================================================
+ * 결과 화면
+ * ======================================================= */
 
 function renderSchedule() {
   const resultElement =
@@ -808,6 +1042,10 @@ function renderSchedule() {
     document.getElementById(
       "statusText",
     );
+
+  if (!resultElement) {
+    return;
+  }
 
   const errors =
     validateSchedule(
@@ -822,137 +1060,29 @@ function renderSchedule() {
   resultElement.textContent =
     copiedText;
 
-  if (errors.length === 0) {
-    statusElement.textContent =
-      `${currentSchedule.length}일 배정 완료 · 규칙 검증 통과`;
-  } else {
-    statusElement.textContent =
-      `검증 오류 ${errors.length}건`;
+  if (statusElement) {
+    if (errors.length === 0) {
+      statusElement.textContent =
+        `${currentSchedule.length}일 생성 완료 · 규칙 검증 통과`;
+    } else {
+      statusElement.textContent =
+        `검증 오류 ${errors.length}건`;
+    }
+  }
+
+  if (errors.length > 0) {
     resultElement.textContent +=
-      `\n\n[검증 오류]\n${errors.join("\n")}`;
+      "\n\n[검증 오류]\n" +
+      errors.join("\n");
   }
 
   renderJobSummary();
   renderWorkerSummary();
 }
 
-function renderJobSummary() {
-  const container =
-    document.getElementById(
-      "summaryContainer",
-    );
-
-  const summary =
-    calculateSummary(
-      currentSchedule,
-    );
-
-  container.innerHTML = "";
-
-  for (const job of JOBS) {
-    const card =
-      document.createElement(
-        "div",
-      );
-
-    card.className =
-      "summary-card";
-
-    card.innerHTML = `
-      <span class="label">
-        ${escapeHtml(job)}
-      </span>
-      <span class="value">
-        ${summary.jobCounts[job]}회
-      </span>
-    `;
-
-    container.appendChild(card);
-  }
-}
-
-function renderWorkerSummary() {
-  const container =
-    document.getElementById(
-      "workerSummaryContainer",
-    );
-
-  const summary =
-    calculateSummary(
-      currentSchedule,
-    );
-
-  const table =
-    document.createElement(
-      "div",
-    );
-
-  table.className =
-    "worker-table-wrap";
-
-  const rows = WORKERS.map(
-    (worker) => {
-      let total = 0;
-
-      for (const job of JOBS) {
-        total +=
-          summary.workerCounts[
-            worker
-          ][job];
-      }
-
-      return `
-        <tr>
-          <td>${escapeHtml(worker)}</td>
-          <td>${summary.workerCounts[worker]["볼분리"]}</td>
-          <td>${summary.workerCounts[worker]["볼분리 보조"]}</td>
-          <td>${summary.workerCounts[worker]["설거지 및 성형보조"]}</td>
-          <td>${summary.workerCounts[worker]["분쇄 및 성형보조"]}</td>
-          <td>${summary.workerCounts[worker]["성형 및 분쇄보조"]}</td>
-          <td><strong>${total}</strong></td>
-        </tr>
-      `;
-    },
-  ).join("");
-
-  table.innerHTML = `
-    <table class="worker-table">
-      <thead>
-        <tr>
-          <th>작업자</th>
-          <th>볼분리</th>
-          <th>볼분리 보조</th>
-          <th>설거지</th>
-          <th>분쇄</th>
-          <th>성형</th>
-          <th>총합</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-  `;
-
-  container.innerHTML = "";
-  container.appendChild(table);
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll(
-      "'",
-      "&#039;",
-    );
-}
-
-/* -------------------------------------------
- * 생성 버튼
- * ----------------------------------------- */
+/* =========================================================
+ * 자동 배정 버튼
+ * ======================================================= */
 
 function handleGenerate() {
   const year =
@@ -994,6 +1124,10 @@ function handleGenerate() {
 
     renderSchedule();
   } catch (error) {
+    console.error(
+      error,
+    );
+
     alert(
       error instanceof Error
         ? error.message
@@ -1002,9 +1136,9 @@ function handleGenerate() {
   }
 }
 
-/* -------------------------------------------
- * 복사
- * ----------------------------------------- */
+/* =========================================================
+ * 텍스트 복사
+ * ======================================================= */
 
 async function handleCopy() {
   if (!copiedText) {
@@ -1024,6 +1158,9 @@ async function handleCopy() {
       "배정표가 클립보드에 복사되었습니다.",
     );
   } catch (error) {
+    /*
+     * 오래된 브라우저 대응
+     */
     const textarea =
       document.createElement(
         "textarea",
@@ -1032,45 +1169,44 @@ async function handleCopy() {
     textarea.value =
       copiedText;
 
+    textarea.style.position =
+      "fixed";
+
+    textarea.style.left =
+      "-9999px";
+
     document.body.appendChild(
       textarea,
     );
 
+    textarea.focus();
     textarea.select();
 
-    document.execCommand(
-      "copy",
-    );
+    try {
+      document.execCommand(
+        "copy",
+      );
+
+      alert(
+        "배정표가 복사되었습니다.",
+      );
+    } catch (copyError) {
+      console.error(
+        copyError,
+      );
+
+      alert(
+        "복사에 실패했습니다. 결과 내용을 직접 선택해 복사해주세요.",
+      );
+    }
 
     textarea.remove();
-
-    alert(
-      "배정표가 복사되었습니다.",
-    );
   }
 }
 
-/* -------------------------------------------
- * 다크모드
- * ----------------------------------------- */
-
-function handleThemeToggle() {
-  document.body.classList.toggle(
-    "dark",
-  );
-
-  const isDark =
-    document.body.classList.contains(
-      "dark",
-    );
-
-  localStorage.setItem(
-    "assignment-app-theme",
-    isDark ? "dark" : "light",
-  );
-
-  updateThemeButton();
-}
+/* =========================================================
+ * 테마
+ * ======================================================= */
 
 function updateThemeButton() {
   const button =
@@ -1078,14 +1214,19 @@ function updateThemeButton() {
       "themeToggle",
     );
 
+  if (!button) {
+    return;
+  }
+
   const isDark =
     document.body.classList.contains(
       "dark",
     );
 
-  button.textContent = isDark
-    ? "라이트모드"
-    : "다크모드";
+  button.textContent =
+    isDark
+      ? "라이트모드"
+      : "다크모드";
 }
 
 function restoreTheme() {
@@ -1103,39 +1244,68 @@ function restoreTheme() {
   updateThemeButton();
 }
 
-/* -------------------------------------------
+function handleThemeToggle() {
+  document.body.classList.toggle(
+    "dark",
+  );
+
+  const isDark =
+    document.body.classList.contains(
+      "dark",
+    );
+
+  localStorage.setItem(
+    "assignment-app-theme",
+    isDark
+      ? "dark"
+      : "light",
+  );
+
+  updateThemeButton();
+}
+
+/* =========================================================
  * 초기화
- * ----------------------------------------- */
+ * ======================================================= */
 
 function initializeApp() {
   restoreTheme();
 
-  document
-    .getElementById(
+  const generateButton =
+    document.getElementById(
       "generateButton",
-    )
-    .addEventListener(
+    );
+
+  if (generateButton) {
+    generateButton.addEventListener(
       "click",
       handleGenerate,
     );
+  }
 
-  document
-    .getElementById(
+  const copyButton =
+    document.getElementById(
       "copyButton",
-    )
-    .addEventListener(
+    );
+
+  if (copyButton) {
+    copyButton.addEventListener(
       "click",
       handleCopy,
     );
+  }
 
-  document
-    .getElementById(
+  const themeToggle =
+    document.getElementById(
       "themeToggle",
-    )
-    .addEventListener(
+    );
+
+  if (themeToggle) {
+    themeToggle.addEventListener(
       "click",
       handleThemeToggle,
     );
+  }
 }
 
 document.addEventListener(
