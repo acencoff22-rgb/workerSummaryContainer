@@ -32,21 +32,26 @@ function getScheduleTitle(
   schedule,
 ) {
   if (
-    !schedule ||
+    !Array.isArray(schedule) ||
     schedule.length === 0
   ) {
     return "업무 배정표";
   }
 
+  const first =
+    schedule[0];
+
   return (
-    `${schedule[0].year}년 ${schedule[0].month}월 업무 배정표`
+    `${first.year}년 ${first.month}월 업무 배정표`
   );
 }
 
 
 function createPrintableScheduleHtml() {
   if (
-    !currentOriginalSchedule ||
+    !Array.isArray(
+      currentOriginalSchedule,
+    ) ||
     currentOriginalSchedule.length === 0
   ) {
     return null;
@@ -57,7 +62,7 @@ function createPrintableScheduleHtml() {
       currentOriginalSchedule,
     );
 
-  const rows = [];
+  const sections = [];
 
   for (
     const day of currentOriginalSchedule
@@ -85,7 +90,7 @@ function createPrintableScheduleHtml() {
     const workerRows =
       WORKERS.map(
         (worker) => {
-          const job =
+          const actualJob =
             actualDay
               ? getJobForWorker(
                   actualDay,
@@ -105,8 +110,8 @@ function createPrintableScheduleHtml() {
             );
 
           let displayedJob =
-            job
-              ? getJobLabel(job)
+            actualJob
+              ? getJobLabel(actualJob)
               : "미배정";
 
           if (isLeave) {
@@ -125,7 +130,7 @@ function createPrintableScheduleHtml() {
         },
       ).join("");
 
-    rows.push(`
+    sections.push(`
       <section class="print-day">
         <h2>${day.month}월 ${day.day}일</h2>
 
@@ -157,9 +162,14 @@ function createPrintableScheduleHtml() {
           box-sizing: border-box;
         }
 
+        html,
         body {
           margin: 0;
-          padding: 24px;
+          padding: 0;
+        }
+
+        body {
+          padding: 20px;
           color: #111;
           background: #fff;
           font-family:
@@ -173,18 +183,18 @@ function createPrintableScheduleHtml() {
         }
 
         h1 {
-          margin: 0 0 24px;
+          margin: 0 0 20px;
           font-size: 24px;
         }
 
         .print-day {
-          margin-bottom: 24px;
+          margin-bottom: 20px;
           break-inside: avoid;
         }
 
         .print-day h2 {
-          margin: 0 0 8px;
-          padding-bottom: 6px;
+          margin: 0 0 7px;
+          padding-bottom: 5px;
           border-bottom: 2px solid #111;
           font-size: 17px;
         }
@@ -197,7 +207,7 @@ function createPrintableScheduleHtml() {
         th,
         td {
           padding: 7px 8px;
-          border: 1px solid #999;
+          border: 1px solid #888;
           text-align: left;
           font-size: 13px;
         }
@@ -213,15 +223,21 @@ function createPrintableScheduleHtml() {
           }
 
           .print-day {
-            margin-bottom: 18px;
+            margin-bottom: 14px;
           }
+        }
+
+        @page {
+          size: A4 portrait;
+          margin: 10mm;
         }
       </style>
     </head>
 
     <body>
       <h1>${escapeHtml(title)}</h1>
-      ${rows.join("")}
+
+      ${sections.join("")}
     </body>
     </html>
   `;
@@ -229,15 +245,17 @@ function createPrintableScheduleHtml() {
 
 
 function createPrintableCalendarHtml() {
-  const calendar =
+  const container =
     document.getElementById(
       "calendarContainer",
     );
 
-  if (
-    !calendar ||
-    !calendar.querySelector(".calendar")
-  ) {
+  const calendar =
+    container?.querySelector(
+      ".calendar",
+    );
+
+  if (!calendar) {
     return null;
   }
 
@@ -248,9 +266,7 @@ function createPrintableCalendarHtml() {
     "업무 배정표 달력";
 
   const calendarClone =
-    calendar
-      .querySelector(".calendar")
-      .cloneNode(true);
+    calendar.cloneNode(true);
 
   calendarClone
     .querySelectorAll(
@@ -276,9 +292,14 @@ function createPrintableCalendarHtml() {
           box-sizing: border-box;
         }
 
+        html,
         body {
           margin: 0;
-          padding: 10px;
+          padding: 0;
+        }
+
+        body {
+          padding: 8px;
           color: #111;
           background: #fff;
           font-family:
@@ -291,7 +312,7 @@ function createPrintableCalendarHtml() {
         }
 
         h1 {
-          margin: 0 0 12px;
+          margin: 0 0 10px;
           font-size: 20px;
         }
 
@@ -310,8 +331,8 @@ function createPrintableCalendarHtml() {
         }
 
         .calendar-weekday {
-          min-height: 28px;
-          padding: 5px;
+          min-height: 27px;
+          padding: 4px;
           text-align: center;
           font-size: 10px;
           font-weight: 700;
@@ -321,6 +342,8 @@ function createPrintableCalendarHtml() {
         .calendar-day {
           min-height: 105px;
           padding: 4px;
+          background: #fff;
+          cursor: default;
         }
 
         .calendar-day.empty {
@@ -331,41 +354,56 @@ function createPrintableCalendarHtml() {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 5px;
           margin-bottom: 3px;
+        }
+
+        .calendar-date-number {
           font-weight: 700;
           font-size: 11px;
         }
 
         .calendar-leave-label {
+          padding: 1px 4px;
           font-size: 8px;
-          color: #b00020;
+          color: #a00018;
+        }
+
+        .calendar-assignment {
+          display: grid;
+          gap: 1px;
         }
 
         .calendar-worker {
           display: grid;
-          grid-template-columns: 24px minmax(0, 1fr);
+          grid-template-columns:
+            24px minmax(0, 1fr);
           gap: 3px;
           font-size: 8px;
         }
 
         .calendar-worker-name {
+          min-width: 0;
           font-weight: 700;
           overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .calendar-worker-job {
+          min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
         .calendar-worker-job.leave {
-          color: #b00020;
+          color: #a00018;
         }
 
         @page {
           size: A4 landscape;
-          margin: 8mm;
+          margin: 7mm;
         }
       </style>
     </head>
@@ -383,11 +421,18 @@ function createPrintableCalendarHtml() {
 function openPrintWindow(
   html,
 ) {
+  /*
+   * 먼저 빈 창을 열고,
+   * 확보한 window 객체에 내용을 작성한다.
+   *
+   * 이렇게 하면 일부 브라우저에서
+   * noopener 관련 동작으로 인해
+   * 새 창이 null로 반환되는 문제를 피할 수 있다.
+   */
   const printWindow =
     window.open(
       "",
       "_blank",
-      "noopener,noreferrer",
     );
 
   if (!printWindow) {
@@ -398,20 +443,54 @@ function openPrintWindow(
     return false;
   }
 
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
+  try {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
 
-  printWindow.focus();
+    const printAndClose =
+      () => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch (error) {
+          console.error(
+            "인쇄 실행 실패:",
+            error,
+          );
+        }
+      };
 
-  window.setTimeout(
-    () => {
-      printWindow.print();
-    },
-    300,
-  );
+    /*
+     * 외부 리소스가 없는 자체 HTML이므로
+     * 짧은 지연 후 인쇄한다.
+     */
+    printWindow.setTimeout(
+      printAndClose,
+      300,
+    );
 
-  return true;
+    return true;
+  } catch (error) {
+    console.error(
+      "출력 화면 생성 실패:",
+      error,
+    );
+
+    try {
+      printWindow.close();
+    } catch (closeError) {
+      console.error(
+        closeError,
+      );
+    }
+
+    alert(
+      "출력 화면을 만들지 못했습니다.",
+    );
+
+    return false;
+  }
 }
 
 
@@ -427,7 +506,9 @@ export function handlePrintSchedule() {
     return false;
   }
 
-  return openPrintWindow(html);
+  return openPrintWindow(
+    html,
+  );
 }
 
 
@@ -443,5 +524,7 @@ export function handlePrintCalendar() {
     return false;
   }
 
-  return openPrintWindow(html);
+  return openPrintWindow(
+    html,
+  );
 }
