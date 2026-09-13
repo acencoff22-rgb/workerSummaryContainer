@@ -1,13 +1,16 @@
 name: Assignment data maintenance
 
 on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "17 15 * * *"
+
   push:
     paths:
       - "data/history.json"
       - "scripts/prune-history.mjs"
       - ".github/workflows/maintenance.yml"
-
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,6 +33,7 @@ jobs:
 
       - name: Check changes
         id: changes
+        shell: bash
         run: |
           if git diff --quiet -- data/history.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -39,6 +43,7 @@ jobs:
 
       - name: Commit maintenance result
         if: steps.changes.outputs.changed == 'true'
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -46,6 +51,6 @@ jobs:
           git add data/history.json
 
           git commit \
-            -m "chore: prune assignment history [skip ci]"
+            -m "chore: maintain assignment history"
 
           git push
