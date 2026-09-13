@@ -48,13 +48,21 @@
 
     <main>
 
-      <!-- 배정 기간 -->
+      <!-- =========================
+           배정 기간
+      ========================== -->
 
       <section class="panel">
 
         <div class="section-header">
 
-          <h2>배정 기간</h2>
+          <div>
+            <h2>배정 기간</h2>
+
+            <p class="help-text">
+              한 달 전체를 지정하거나 필요한 날짜 범위만 생성할 수 있습니다.
+            </p>
+          </div>
 
           <span
             id="dataStatus"
@@ -102,7 +110,7 @@
               type="number"
               min="1"
               max="31"
-              value="15"
+              value="1"
             >
           </label>
 
@@ -146,7 +154,70 @@
       </section>
 
 
-      <!-- 연차 -->
+      <!-- =========================
+           월간 달력
+      ========================== -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <div>
+            <h2>월간 달력</h2>
+
+            <p class="help-text">
+              생성된 배정표를 날짜별로 확인할 수 있습니다.
+            </p>
+          </div>
+
+
+          <div class="calendar-navigation">
+
+            <button
+              id="previousMonthButton"
+              class="secondary-button"
+              type="button"
+            >
+              이전 달
+            </button>
+
+
+            <strong
+              id="calendarTitle"
+              class="calendar-title"
+            >
+              2026년 9월
+            </strong>
+
+
+            <button
+              id="nextMonthButton"
+              class="secondary-button"
+              type="button"
+            >
+              다음 달
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="calendarContainer"
+          class="calendar-container"
+        >
+          <div class="empty-state">
+            배정표를 생성하면 달력에 표시됩니다.
+          </div>
+        </div>
+
+      </section>
+
+
+      <!-- =========================
+           연차
+      ========================== -->
 
       <section class="panel">
 
@@ -271,7 +342,9 @@
       </section>
 
 
-      <!-- GitHub 설정 -->
+      <!-- =========================
+           GitHub 설정
+      ========================== -->
 
       <section class="panel">
 
@@ -282,8 +355,7 @@
             <h2>GitHub 저장 설정</h2>
 
             <p class="help-text">
-              GitHub 저장소 정보를 한 번만 입력하면
-              배정 기록을 저장하기 편해집니다.
+              GitHub 저장소 정보를 한 번만 입력하면 됩니다.
             </p>
 
           </div>
@@ -375,7 +447,9 @@
       </section>
 
 
-      <!-- 배정 규칙 -->
+      <!-- =========================
+           규칙
+      ========================== -->
 
       <section class="panel">
 
@@ -386,6 +460,7 @@
 
           <div class="rule-item">
             <strong>볼분리</strong>
+
             <span>
               김 · 탁 · 임만 가능
             </span>
@@ -394,6 +469,7 @@
 
           <div class="rule-item">
             <strong>볼분리 보조</strong>
+
             <span>
               김 · 탁 · 임만 가능
             </span>
@@ -402,6 +478,7 @@
 
           <div class="rule-item">
             <strong>류</strong>
+
             <span>
               설거지 및 성형보조 /
               분쇄 및 성형보조 /
@@ -412,6 +489,7 @@
 
           <div class="rule-item">
             <strong>박</strong>
+
             <span>
               설거지 및 성형보조 /
               분쇄 및 성형보조
@@ -421,6 +499,7 @@
 
           <div class="rule-item">
             <strong>연차</strong>
+
             <span>
               실제 배정에서는 제외하고
               원래 업무는 누적 횟수에 반영
@@ -430,6 +509,7 @@
 
           <div class="rule-item">
             <strong>누적</strong>
+
             <span>
               최근 6개월 상세 기록 +
               이전 기록의 압축 누적값
@@ -441,7 +521,9 @@
       </section>
 
 
-      <!-- 결과 -->
+      <!-- =========================
+           결과
+      ========================== -->
 
       <section class="panel">
 
@@ -467,7 +549,9 @@
       </section>
 
 
-      <!-- 업무별 -->
+      <!-- =========================
+           업무별 횟수
+      ========================== -->
 
       <section class="panel">
 
@@ -488,7 +572,9 @@
       </section>
 
 
-      <!-- 작업자별 -->
+      <!-- =========================
+           작업자별 횟수
+      ========================== -->
 
       <section class="panel">
 
@@ -506,7 +592,9 @@
       </section>
 
 
-      <!-- GitHub 저장 -->
+      <!-- =========================
+           GitHub 저장
+      ========================== -->
 
       <section class="panel">
 
@@ -517,8 +605,7 @@
             <h2>GitHub 저장</h2>
 
             <p class="help-text">
-              현재 데이터를 JSON으로 복사하고
-              GitHub의 history.json 편집 화면을 엽니다.
+              JSON을 자동으로 복사하고 GitHub 편집 화면을 엽니다.
             </p>
 
           </div>
@@ -567,7 +654,9 @@
       </section>
 
 
-      <!-- 데이터 관리 -->
+      <!-- =========================
+           데이터 관리
+      ========================== -->
 
       <section class="panel">
 
@@ -578,7 +667,7 @@
             <h2>데이터 관리</h2>
 
             <p class="help-text">
-              JSON 파일을 이용해 전체 데이터를 백업하고 복원할 수 있습니다.
+              JSON 파일로 데이터를 백업하고 복원할 수 있습니다.
             </p>
 
           </div>
