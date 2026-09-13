@@ -21,7 +21,7 @@
       <div>
         <h1>업무 배정표 자동 생성기</h1>
         <p>
-          작업 규칙과 업무 균형을 기준으로 월간 배정표를 자동 생성합니다.
+          최근 6개월 누적 기록을 기준으로 업무를 자동 배정합니다.
         </p>
       </div>
 
@@ -36,8 +36,14 @@
 
     <main>
 
+      <!-- 기간 -->
       <section class="panel">
-        <h2>배정 기간</h2>
+        <div class="section-header">
+          <h2>배정 기간</h2>
+          <span id="dataStatus" class="status">
+            누적 데이터 없음
+          </span>
+        </div>
 
         <div class="form-grid">
           <label>
@@ -69,7 +75,7 @@
               type="number"
               min="1"
               max="31"
-              value="15"
+              value="1"
             >
           </label>
 
@@ -104,48 +110,152 @@
         </div>
       </section>
 
+      <!-- 연차 -->
       <section class="panel">
-        <h2>작업 규칙</h2>
+        <div class="section-header">
+          <div>
+            <h2>연차 / 휴무</h2>
+            <p class="help-text">
+              날짜별로 쉬는 작업자를 선택합니다.
+              연차자의 원래 업무는 누적 횟수에서는 수행한 것으로 계산합니다.
+            </p>
+          </div>
+
+          <button
+            id="clearLeaveButton"
+            class="secondary-button"
+            type="button"
+          >
+            연차 전체 삭제
+          </button>
+        </div>
+
+        <div class="form-grid leave-form">
+          <label>
+            연차 날짜
+            <input
+              id="leaveDateInput"
+              type="date"
+            >
+          </label>
+        </div>
+
+        <div
+          id="leaveWorkersContainer"
+          class="worker-check-grid"
+        >
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="김"
+              data-leave-worker
+            >
+            <span>김</span>
+          </label>
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="탁"
+              data-leave-worker
+            >
+            <span>탁</span>
+          </label>
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="임"
+              data-leave-worker
+            >
+            <span>임</span>
+          </label>
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="박"
+              data-leave-worker
+            >
+            <span>박</span>
+          </label>
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="류"
+              data-leave-worker
+            >
+            <span>류</span>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button
+            id="saveLeaveButton"
+            class="primary-button"
+            type="button"
+          >
+            연차 저장
+          </button>
+        </div>
+
+        <div
+          id="leaveList"
+          class="leave-list"
+        >
+          <div class="empty-state">
+            등록된 연차가 없습니다.
+          </div>
+        </div>
+      </section>
+
+      <!-- 규칙 -->
+      <section class="panel">
+        <h2>배정 규칙</h2>
 
         <div class="rule-list">
           <div class="rule-item">
             <strong>볼분리</strong>
-            <span>김 · 탁 · 임</span>
+            <span>김 · 탁 · 임만 가능</span>
           </div>
 
           <div class="rule-item">
             <strong>볼분리 보조</strong>
-            <span>김 · 탁 · 임</span>
+            <span>김 · 탁 · 임만 가능</span>
           </div>
 
           <div class="rule-item">
             <strong>류</strong>
             <span>
-              설거지 및 성형보조 /
-              분쇄 및 성형보조 /
-              성형 및 분쇄보조
+              설거지 및 성형보조 / 분쇄 및 성형보조 / 성형 및 분쇄보조
             </span>
           </div>
 
           <div class="rule-item">
             <strong>박</strong>
             <span>
-              설거지 및 성형보조 /
-              분쇄 및 성형보조
+              설거지 및 성형보조 / 분쇄 및 성형보조
             </span>
           </div>
 
           <div class="rule-item">
-            <strong>우선순위</strong>
+            <strong>연차</strong>
             <span>
-              김·탁·임 볼분리 균등 →
-              볼분리 보조 균등 →
-              전체 업무 균형
+              당일 실제 배정에서는 제외하며 원래 업무는 누적 횟수에 반영
+            </span>
+          </div>
+
+          <div class="rule-item">
+            <strong>누적</strong>
+            <span>
+              최근 6개월 상세 기록 + 그 이전 기록의 압축 누적값 사용
             </span>
           </div>
         </div>
       </section>
 
+      <!-- 결과 -->
       <section class="panel">
         <div class="section-header">
           <h2>생성 결과</h2>
@@ -161,16 +271,21 @@
         ></pre>
       </section>
 
+      <!-- 업무별 -->
       <section class="panel">
         <h2>업무별 횟수</h2>
 
-        <div id="summaryContainer" class="summary-grid">
+        <div
+          id="summaryContainer"
+          class="summary-grid"
+        >
           <div class="empty-state">
             배정표를 생성하면 횟수가 표시됩니다.
           </div>
         </div>
       </section>
 
+      <!-- 작업자별 -->
       <section class="panel">
         <h2>작업자별 횟수</h2>
 
@@ -181,11 +296,55 @@
         </div>
       </section>
 
+      <!-- 데이터 -->
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <h2>데이터 관리</h2>
+            <p class="help-text">
+              기록은 브라우저에도 저장되며 JSON 파일로 백업할 수 있습니다.
+            </p>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button
+            id="exportButton"
+            class="secondary-button"
+            type="button"
+          >
+            데이터 백업
+          </button>
+
+          <label
+            for="importInput"
+            class="secondary-button file-button"
+          >
+            데이터 복원
+          </label>
+
+          <input
+            id="importInput"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          >
+
+          <button
+            id="clearDataButton"
+            class="danger-button"
+            type="button"
+          >
+            전체 데이터 삭제
+          </button>
+        </div>
+      </section>
+
     </main>
 
     <footer>
       <p>
-        GitHub Pages에서 직접 실행할 수 있는 클라이언트형 버전
+        GitHub Pages에서 실행되는 클라이언트형 업무 배정 앱
       </p>
     </footer>
 
