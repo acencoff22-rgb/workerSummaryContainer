@@ -7,36 +7,20 @@ import {
 
 import {
   appData,
-  resetRuntimeState,
   setAppData,
+  resetRuntimeState,
 } from "./state.js";
 
 import {
-  deepClone,
+  createEmptyData,
   normalizeData,
   saveLocalData,
-  createEmptyData,
+  deepClone,
 } from "./data.js";
 
 import {
   getFileDateString,
 } from "./utils.js";
-
-import {
-  renderNameSettings,
-} from "./settings.js";
-
-import {
-  renderLeaveList,
-} from "./leave.js";
-
-import {
-  renderCalendar,
-} from "./calendar.js";
-
-import {
-  renderEmptySummaries,
-} from "./render.js";
 
 
 export function getCurrentDataPayload() {
@@ -70,6 +54,91 @@ export function getCurrentDataPayload() {
 }
 
 
+function fallbackCopyText(
+  text,
+) {
+  const textarea =
+    document.createElement(
+      "textarea",
+    );
+
+  textarea.value =
+    text;
+
+  textarea.style.position =
+    "fixed";
+
+  textarea.style.left =
+    "-9999px";
+
+  textarea.style.top =
+    "0";
+
+  textarea.style.opacity =
+    "0";
+
+  document.body.appendChild(
+    textarea,
+  );
+
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+
+  try {
+    copied =
+      document.execCommand(
+        "copy",
+      );
+  } catch (error) {
+    console.error(
+      "클립보드 fallback 실패:",
+      error,
+    );
+  }
+
+  textarea.remove();
+
+  return copied;
+}
+
+
+export async function copyTextToClipboard(
+  text,
+) {
+  const value =
+    String(text ?? "");
+
+  if (!value) {
+    return false;
+  }
+
+  if (
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText ===
+      "function"
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        value,
+      );
+
+      return true;
+    } catch (error) {
+      console.warn(
+        "navigator.clipboard 실패. fallback을 사용합니다.",
+        error,
+      );
+    }
+  }
+
+  return fallbackCopyText(
+    value,
+  );
+}
+
+
 export async function copyJsonToClipboard() {
   const json =
     JSON.stringify(
@@ -78,49 +147,9 @@ export async function copyJsonToClipboard() {
       2,
     );
 
-  try {
-    await navigator.clipboard.writeText(
-      json,
-    );
-
-    return true;
-  } catch (error) {
-    const textarea =
-      document.createElement(
-        "textarea",
-      );
-
-    textarea.value =
-      json;
-
-    textarea.style.position =
-      "fixed";
-
-    textarea.style.left =
-      "-9999px";
-
-    document.body.appendChild(
-      textarea,
-    );
-
-    textarea.focus();
-    textarea.select();
-
-    try {
-      document.execCommand("copy");
-      textarea.remove();
-
-      return true;
-    } catch (copyError) {
-      console.error(
-        copyError,
-      );
-
-      textarea.remove();
-
-      return false;
-    }
-  }
+  return copyTextToClipboard(
+    json,
+  );
 }
 
 
@@ -146,11 +175,24 @@ export async function handleCopyJson() {
     alert(
       "JSON이 복사되었습니다.",
     );
-  } else {
-    alert(
-      "JSON 복사에 실패했습니다.",
+
+    return true;
+  }
+
+  if (status) {
+    status.textContent =
+      "JSON 복사에 실패했습니다.";
+
+    status.classList.remove(
+      "success",
     );
   }
+
+  alert(
+    "JSON 복사에 실패했습니다.",
+  );
+
+  return false;
 }
 
 
@@ -167,36 +209,53 @@ export function handleExport() {
       [json],
       {
         type:
-          "application/json",
+          "application/json;charset=utf-8",
       },
     );
 
   const url =
-    URL.createObjectURL(blob);
+    URL.createObjectURL(
+      blob,
+    );
 
   const link =
-    document.createElement("a");
+    document.createElement(
+      "a",
+    );
 
-  link.href = url;
+  link.href =
+    url;
 
   link.download =
     `assignment-history-${getFileDateString()}.json`;
 
-  document.body.appendChild(link);
+  document.body.appendChild(
+    link,
+  );
 
   link.click();
 
   link.remove();
 
-  URL.revokeObjectURL(url);
+  window.setTimeout(
+    () => {
+      URL.revokeObjectURL(
+        url,
+      );
+    },
+    0,
+  );
 }
 
 
 export function handleImport(
   event,
 ) {
+  const input =
+    event?.target;
+
   const file =
-    event.target.files?.[0];
+    input?.files?.[0];
 
   if (!file) {
     return;
@@ -208,58 +267,45 @@ export function handleImport(
   reader.onload =
     () => {
       try {
+        const text =
+          String(
+            reader.result ?? "",
+          );
+
         const parsed =
-          JSON.parse(
-            reader.result,
+          JSON.parse(text);
+
+        const normalized =
+          normalizeData(
+            parsed,
           );
 
         setAppData(
-          normalizeData(parsed),
+          normalized,
         );
 
-        saveLocalData(appData);
+        saveLocalData(
+          normalized,
+        );
 
         resetRuntimeState();
-
-        renderNameSettings();
-        renderLeaveList();
-        renderEmptySummaries();
-        renderCalendar();
-
-        const result =
-          document.getElementById(
-            "resultText",
-          );
-
-        if (result) {
-          result.textContent = "";
-        }
-
-        const status =
-          document.getElementById(
-            "statusText",
-          );
-
-        if (status) {
-          status.textContent =
-            "데이터를 복원했습니다.";
-
-          status.classList.add(
-            "success",
-          );
-        }
 
         alert(
           "데이터를 복원했습니다.",
         );
       } catch (error) {
-        console.error(error);
+        console.error(
+          "JSON 복원 실패:",
+          error,
+        );
 
         alert(
           "올바른 JSON 데이터가 아닙니다.",
         );
       } finally {
-        event.target.value = "";
+        if (input) {
+          input.value = "";
+        }
       }
     };
 
@@ -269,7 +315,9 @@ export function handleImport(
         "파일을 읽지 못했습니다.",
       );
 
-      event.target.value = "";
+      if (input) {
+        input.value = "";
+      }
     };
 
   reader.readAsText(
@@ -298,41 +346,18 @@ export function handleClearData() {
     return false;
   }
 
+  const emptyData =
+    createEmptyData();
+
   setAppData(
-    createEmptyData(),
+    emptyData,
   );
 
   resetRuntimeState();
 
-  saveLocalData(appData);
-
-  renderNameSettings();
-  renderLeaveList();
-  renderEmptySummaries();
-  renderCalendar();
-
-  const result =
-    document.getElementById(
-      "resultText",
-    );
-
-  if (result) {
-    result.textContent = "";
-  }
-
-  const status =
-    document.getElementById(
-      "statusText",
-    );
-
-  if (status) {
-    status.textContent =
-      "아직 생성되지 않았습니다.";
-
-    status.classList.remove(
-      "success",
-    );
-  }
+  saveLocalData(
+    emptyData,
+  );
 
   return true;
 }
