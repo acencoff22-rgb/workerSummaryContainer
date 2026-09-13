@@ -1,10 +1,6 @@
 "use strict";
 
 import {
-  STORAGE_KEY,
-} from "./config.js";
-
-import {
   appData,
   githubConfig,
   currentOriginalSchedule,
@@ -19,7 +15,6 @@ import {
 
 import {
   createEmptyData,
-  normalizeData,
   loadLocalData,
   saveLocalData,
   calculateOriginalCounts,
@@ -30,7 +25,6 @@ import {
   cleanupOldHistory,
   getStartingCountsForMonth,
   optimizeMonth,
-  validateOriginalSchedule,
 } from "./assignment.js";
 
 import {
@@ -121,13 +115,12 @@ function updateDataStatus() {
   ) {
     for (
       const job of Object.keys(
-        appData.baseline[worker] || {},
+        appData.baseline?.[worker] || {},
       )
     ) {
       baselineTotal +=
         Number(
-          appData.baseline[worker][job] ||
-            0,
+          appData.baseline[worker][job] || 0,
         );
     }
   }
@@ -170,9 +163,10 @@ function updateNameSettingsStatus(
 }
 
 
-function refreshLeaveAndCalendar() {
+function refreshAll() {
+  renderNameSettings();
+  updateLeaveWorkerLabels();
   renderLeaveList();
-  renderCalendar();
 
   if (
     currentOriginalSchedule.length > 0
@@ -180,6 +174,22 @@ function refreshLeaveAndCalendar() {
     renderSchedule();
   } else {
     renderEmptySummaries();
+    renderCalendar();
+  }
+
+  updateDataStatus();
+}
+
+
+function refreshLeaveAndCalendar() {
+  renderLeaveList();
+
+  if (
+    currentOriginalSchedule.length > 0
+  ) {
+    renderSchedule();
+  } else {
+    renderCalendar();
   }
 
   updateDataStatus();
@@ -321,16 +331,16 @@ function handleGenerate() {
                   day.day,
                 );
 
-              const leaveWorkers =
-                (
-                  appData.leave?.[
-                    dateKey
-                  ] || []
-                ).slice();
-
               return {
                 ...day,
-                leaveWorkers,
+
+                leaveWorkers: [
+                  ...(
+                    appData.leave?.[
+                      dateKey
+                    ] || []
+                  ),
+                ],
               };
             },
           );
@@ -368,8 +378,9 @@ function handleGenerate() {
               `${monthKey}-`,
             )
           ) {
-            monthLeave[dateKey] =
-              [...workers];
+            monthLeave[dateKey] = [
+              ...workers,
+            ];
           }
         }
 
@@ -394,20 +405,27 @@ function handleGenerate() {
 
         const nextData = {
           ...appData,
+
           history:
             nextHistory,
         };
 
-        setAppData(nextData);
-
-        saveLocalData(nextData);
+        setAppData(
+          nextData,
+        );
 
         cleanupOldHistory(
           year,
           month,
         );
 
-        refreshLeaveAndCalendar();
+        saveLocalData(
+          appData,
+        );
+
+        renderSchedule();
+        renderLeaveList();
+        updateDataStatus();
       } catch (error) {
         console.error(
           "배정 실패:",
@@ -598,12 +616,7 @@ async function handleRepositoryLoad() {
 
   resetRuntimeState();
 
-  renderNameSettings();
-  updateLeaveWorkerLabels();
-  renderLeaveList();
-  renderEmptySummaries();
-  renderCalendar();
-  updateDataStatus();
+  refreshAll();
 }
 
 
@@ -628,6 +641,32 @@ function handleClearLeavesAndRender() {
   }
 
   refreshLeaveAndCalendar();
+}
+
+
+async function handleImportAndRefresh(
+  event,
+) {
+  handleImport(event);
+
+  window.setTimeout(
+    () => {
+      refreshAll();
+    },
+    50,
+  );
+}
+
+
+function handleClearDataAndRefresh() {
+  const cleared =
+    handleClearData();
+
+  if (!cleared) {
+    return;
+  }
+
+  refreshAll();
 }
 
 
@@ -802,21 +841,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "change",
-      (event) => {
-        handleImport(event);
-
-        window.setTimeout(
-          () => {
-            renderNameSettings();
-            updateLeaveWorkerLabels();
-            renderLeaveList();
-            renderEmptySummaries();
-            renderCalendar();
-            updateDataStatus();
-          },
-          50,
-        );
-      },
+      handleImportAndRefresh,
     );
 
   document
@@ -825,18 +850,7 @@ function bindEvents() {
     )
     ?.addEventListener(
       "click",
-      () => {
-        if (
-          handleClearData()
-        ) {
-          renderNameSettings();
-          updateLeaveWorkerLabels();
-          renderLeaveList();
-          renderEmptySummaries();
-          renderCalendar();
-          updateDataStatus();
-        }
-      },
+      handleClearDataAndRefresh,
     );
 
   document
@@ -848,6 +862,21 @@ function bindEvents() {
       (event) => {
         loadLeaveCheckboxes(
           event.target.value,
+        );
+      },
+    );
+
+  document
+    .querySelectorAll(
+      "[data-leave-worker]",
+    )
+    .forEach(
+      (checkbox) => {
+        checkbox.addEventListener(
+          "change",
+          () => {
+            // 저장 버튼을 눌렀을 때만 실제 데이터에 반영한다.
+          },
         );
       },
     );
@@ -958,13 +987,11 @@ async function initializeApp() {
   updateLeaveWorkerLabels();
 
   renderLeaveList();
-
   renderEmptySummaries();
 
   updateDataStatus();
 
   updateCalendarToGeneratedMonth();
-
   renderCalendar();
 
   bindEvents();
@@ -980,13 +1007,7 @@ async function initializeApp() {
 
     if (loaded) {
       resetRuntimeState();
-
-      renderNameSettings();
-      updateLeaveWorkerLabels();
-      renderLeaveList();
-      renderEmptySummaries();
-      renderCalendar();
-      updateDataStatus();
+      refreshAll();
     }
   }
 }
