@@ -25,6 +25,17 @@ export function createEmptyWorkerCounts() {
 }
 
 
+export function createEmptyJobCounts() {
+  const result = {};
+
+  for (const job of JOBS) {
+    result[job] = 0;
+  }
+
+  return result;
+}
+
+
 export function createDefaultNameSettings() {
   return {
     workers: Object.fromEntries(
@@ -90,8 +101,7 @@ export function normalizeNameSettings(input) {
           ).trim();
 
         if (value) {
-          result.jobs[job] =
-            value;
+          result.jobs[job] = value;
         }
       }
     }
@@ -101,7 +111,9 @@ export function normalizeNameSettings(input) {
 }
 
 
-export function normalizeWorkerCounts(input) {
+export function normalizeWorkerCounts(
+  input,
+) {
   const result =
     createEmptyWorkerCounts();
 
@@ -140,7 +152,9 @@ export function normalizeWorkerCounts(input) {
 }
 
 
-export function normalizeLeaveMap(input) {
+export function normalizeLeaveMap(
+  input,
+) {
   const result = {};
 
   if (
@@ -179,7 +193,9 @@ export function normalizeLeaveMap(input) {
 }
 
 
-export function normalizeHistory(history) {
+export function normalizeHistory(
+  history,
+) {
   const result = {};
 
   if (
@@ -347,6 +363,16 @@ export function addAssignmentToCounts(
       continue;
     }
 
+    if (
+      !result[worker] ||
+      !Object.hasOwn(
+        result[worker],
+        job,
+      )
+    ) {
+      continue;
+    }
+
     result[worker][job] += 1;
   }
 
@@ -360,12 +386,30 @@ export function calculateOriginalCounts(
   const result =
     createEmptyWorkerCounts();
 
+  if (!Array.isArray(schedule)) {
+    return result;
+  }
+
   for (const day of schedule) {
+    if (!day) {
+      continue;
+    }
+
     for (const job of JOBS) {
       const worker =
         day[job];
 
       if (!worker) {
+        continue;
+      }
+
+      if (
+        !result[worker] ||
+        !Object.hasOwn(
+          result[worker],
+          job,
+        )
+      ) {
         continue;
       }
 
@@ -385,7 +429,7 @@ export function loadLocalData() {
       );
 
     if (!raw) {
-      return false;
+      return null;
     }
 
     return normalizeData(
@@ -397,7 +441,7 @@ export function loadLocalData() {
       error,
     );
 
-    return false;
+    return null;
   }
 }
 
@@ -432,9 +476,19 @@ export function loadGithubConfig() {
       return createEmptyGithubConfig();
     }
 
+    const parsed =
+      JSON.parse(raw);
+
+    if (
+      !parsed ||
+      typeof parsed !== "object"
+    ) {
+      return createEmptyGithubConfig();
+    }
+
     return {
       ...createEmptyGithubConfig(),
-      ...JSON.parse(raw),
+      ...parsed,
     };
   } catch (error) {
     console.error(
@@ -447,9 +501,22 @@ export function loadGithubConfig() {
 }
 
 
-export function saveGithubConfig(config) {
-  localStorage.setItem(
-    GITHUB_CONFIG_KEY,
-    JSON.stringify(config),
-  );
+export function saveGithubConfig(
+  config,
+) {
+  try {
+    localStorage.setItem(
+      GITHUB_CONFIG_KEY,
+      JSON.stringify(config),
+    );
+
+    return true;
+  } catch (error) {
+    console.error(
+      "GitHub 설정 저장 실패:",
+      error,
+    );
+
+    return false;
+  }
 }
