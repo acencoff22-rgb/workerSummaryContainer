@@ -18,8 +18,8 @@ import {
 } from "./data.js";
 
 import {
-  getJobForWorker,
   validateOriginalSchedule,
+  getJobForWorker,
 } from "./assignment.js";
 
 import {
@@ -44,7 +44,7 @@ export function formatScheduleAsText(
   schedule,
 ) {
   if (
-    !schedule ||
+    !Array.isArray(schedule) ||
     schedule.length === 0
   ) {
     return "";
@@ -83,17 +83,17 @@ export function formatScheduleAsText(
     for (
       const worker of WORKERS
     ) {
+      const originalJob =
+        getJobForWorker(
+          day,
+          worker,
+        );
+
       if (
         leaveWorkers.includes(
           worker,
         )
       ) {
-        const originalJob =
-          getJobForWorker(
-            day,
-            worker,
-          );
-
         lines.push(
           `${getWorkerLabel(worker)} → 연차${
             originalJob
@@ -105,16 +105,10 @@ export function formatScheduleAsText(
         continue;
       }
 
-      const job =
-        getJobForWorker(
-          day,
-          worker,
-        );
-
       lines.push(
         `${getWorkerLabel(worker)} → ${
-          job
-            ? getJobLabel(job)
+          originalJob
+            ? getJobLabel(originalJob)
             : "미배정"
         }`,
       );
@@ -167,12 +161,22 @@ export function renderSchedule() {
 
   if (status) {
     if (
-      errors.length === 0
+      errors.length === 0 &&
+      currentOriginalSchedule.length > 0
     ) {
       status.textContent =
         `${currentOriginalSchedule.length}일 생성 완료 · 월 전체 최적화 · 규칙 검증 통과`;
 
       status.classList.add(
+        "success",
+      );
+    } else if (
+      currentOriginalSchedule.length === 0
+    ) {
+      status.textContent =
+        "아직 생성되지 않았습니다.";
+
+      status.classList.remove(
         "success",
       );
     } else {
@@ -201,6 +205,18 @@ export function renderJobSummary() {
     return;
   }
 
+  if (
+    currentOriginalSchedule.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="empty-state">
+        배정표를 생성하면 횟수가 표시됩니다.
+      </div>
+    `;
+
+    return;
+  }
+
   const counts =
     createEmptyJobCounts();
 
@@ -210,7 +226,7 @@ export function renderJobSummary() {
     for (
       const job of JOBS
     ) {
-      if (day[job]) {
+      if (day?.[job]) {
         counts[job] += 1;
       }
     }
@@ -269,6 +285,18 @@ export function renderWorkerSummary() {
     return;
   }
 
+  if (
+    currentOriginalSchedule.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="empty-state">
+        배정표를 생성하면 작업자별 횟수가 표시됩니다.
+      </div>
+    `;
+
+    return;
+  }
+
   const counts =
     currentOriginalCounts ||
     createEmptyWorkerCounts();
@@ -299,31 +327,27 @@ export function renderWorkerSummary() {
       "tr",
     );
 
-  JOBS
-    .map(getJobLabel)
-    .reduce(
-      (all, label) => {
-        all.push(label);
-        return all;
-      },
-      [
-        "작업자",
-      ],
-    )
-    .concat("총합")
-    .forEach(
-      (text) => {
-        const th =
-          document.createElement(
-            "th",
-          );
+  const headers = [
+    "작업자",
+    ...JOBS.map(
+      getJobLabel,
+    ),
+    "총합",
+  ];
 
-        th.textContent =
-          text;
+  for (
+    const text of headers
+  ) {
+    const th =
+      document.createElement(
+        "th",
+      );
 
-        header.appendChild(th);
-      },
-    );
+    th.textContent =
+      text;
+
+    header.appendChild(th);
+  }
 
   thead.appendChild(header);
 
@@ -354,14 +378,17 @@ export function renderWorkerSummary() {
         .slice(1)
         .reduce(
           (sum, value) =>
-            sum + value,
+            sum + Number(value || 0),
           0,
         );
 
     values.push(total);
 
     values.forEach(
-      (value, index) => {
+      (
+        value,
+        index,
+      ) => {
         const td =
           document.createElement(
             "td",
@@ -379,7 +406,9 @@ export function renderWorkerSummary() {
           strong.textContent =
             String(value);
 
-          td.appendChild(strong);
+          td.appendChild(
+            strong,
+          );
         } else {
           td.textContent =
             String(value);
