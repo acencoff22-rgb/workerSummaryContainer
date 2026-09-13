@@ -1,7 +1,6 @@
 "use strict";
 
 import {
-  appData,
   githubConfig,
   setGithubConfig,
   setAppData,
@@ -10,10 +9,14 @@ import {
 import {
   createEmptyGithubConfig,
   normalizeData,
-  saveLocalData,
   loadGithubConfig,
   saveGithubConfig,
+  saveLocalData,
 } from "./data.js";
+
+import {
+  copyJsonToClipboard,
+} from "./backup.js";
 
 
 export function initializeGithubConfig() {
@@ -86,20 +89,20 @@ export function updateGithubForm() {
       githubConfig.dataPath,
   };
 
-  Object.entries(fields)
-    .forEach(
-      ([
-        id,
-        value,
-      ]) => {
-        const element =
-          document.getElementById(id);
+  for (
+    const [
+      id,
+      value,
+    ] of Object.entries(fields)
+  ) {
+    const element =
+      document.getElementById(id);
 
-        if (element) {
-          element.value = value;
-        }
-      },
-    );
+    if (element) {
+      element.value =
+        value ?? "";
+    }
+  }
 }
 
 
@@ -128,7 +131,9 @@ export function updateGithubConfigStatus() {
   }
 
   element.textContent =
-    `저장소: ${githubConfig.owner}/${githubConfig.repo}\n브랜치: ${githubConfig.branch}\n데이터: ${githubConfig.dataPath}`;
+    `저장소: ${githubConfig.owner}/${githubConfig.repo}\n` +
+    `브랜치: ${githubConfig.branch}\n` +
+    `데이터: ${githubConfig.dataPath}`;
 
   element.classList.add(
     "success",
@@ -139,13 +144,17 @@ export function updateGithubConfigStatus() {
 export function applyGithubConfig(
   config,
 ) {
-  setGithubConfig({
+  const nextConfig = {
     ...createEmptyGithubConfig(),
     ...config,
-  });
+  };
+
+  setGithubConfig(
+    nextConfig,
+  );
 
   saveGithubConfig(
-    githubConfig,
+    nextConfig,
   );
 
   updateGithubForm();
@@ -164,6 +173,9 @@ export function getGithubRawUrl() {
   const path =
     githubConfig.dataPath
       .split("/")
+      .filter(
+        (part) => part !== "",
+      )
       .map(
         (part) =>
           encodeURIComponent(part),
@@ -200,6 +212,9 @@ export function getGithubEditUrl() {
   const path =
     githubConfig.dataPath
       .split("/")
+      .filter(
+        (part) => part !== "",
+      )
       .map(
         (part) =>
           encodeURIComponent(part),
@@ -313,6 +328,12 @@ export async function loadRepositoryData(
         "GitHub 기록 불러오기 완료";
     }
 
+    if (showAlert) {
+      alert(
+        "GitHub 저장소의 기록을 불러왔습니다.",
+      );
+    }
+
     return true;
   } catch (error) {
     console.error(
@@ -341,7 +362,9 @@ export function handleSaveGithubConfig() {
     const config =
       readGithubInputs();
 
-    applyGithubConfig(config);
+    applyGithubConfig(
+      config,
+    );
 
     alert(
       "GitHub 설정을 저장했습니다.",
@@ -365,7 +388,9 @@ export async function handleTestGithub() {
     const config =
       readGithubInputs();
 
-    applyGithubConfig(config);
+    applyGithubConfig(
+      config,
+    );
 
     return await loadRepositoryData(
       true,
@@ -387,12 +412,8 @@ export async function handlePrepareGithub() {
     const config =
       readGithubInputs();
 
-    applyGithubConfig(config);
-
-    const {
-      copyJsonToClipboard,
-    } = await import(
-      "./backup.js"
+    applyGithubConfig(
+      config,
     );
 
     const copied =
@@ -447,7 +468,9 @@ export function handleOpenGithubEdit() {
     const config =
       readGithubInputs();
 
-    applyGithubConfig(config);
+    applyGithubConfig(
+      config,
+    );
 
     const url =
       getGithubEditUrl();
