@@ -1,51 +1,654 @@
-name: Assignment data maintenance
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
 
-on:
-  push:
-    paths:
-      - "data/history.json"
-      - "scripts/prune-history.mjs"
-      - ".github/workflows/maintenance.yml"
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
 
-  workflow_dispatch:
+  <meta
+    name="description"
+    content="작업자 업무 자동 배정표 생성기"
+  >
 
-permissions:
-  contents: write
+  <title>업무 배정표 자동 생성기</title>
 
-jobs:
-  maintain:
-    runs-on: ubuntu-latest
+  <link
+    rel="stylesheet"
+    href="style.css"
+  >
+</head>
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+<body>
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+  <div class="app-shell">
 
-      - name: Prune old history
-        run: node scripts/prune-history.mjs
+    <header class="app-header">
 
-      - name: Check changes
-        id: changes
-        run: |
-          if git diff --quiet -- data/history.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+      <div>
+        <h1>업무 배정표 자동 생성기</h1>
 
-      - name: Commit maintenance result
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        <p>
+          최근 6개월 누적 기록을 기준으로 업무를 자동 배정합니다.
+        </p>
+      </div>
 
-          git add data/history.json
+      <button
+        id="themeToggle"
+        class="secondary-button"
+        type="button"
+      >
+        다크모드
+      </button>
 
-          git commit \
-            -m "chore: prune assignment history [skip ci]"
+    </header>
 
-          git push
+
+    <main>
+
+      <!-- 배정 기간 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <h2>배정 기간</h2>
+
+          <span
+            id="dataStatus"
+            class="status"
+          >
+            데이터 확인 중...
+          </span>
+
+        </div>
+
+
+        <div class="form-grid">
+
+          <label>
+            연도
+
+            <input
+              id="yearInput"
+              type="number"
+              min="2020"
+              max="2100"
+              value="2026"
+            >
+          </label>
+
+
+          <label>
+            월
+
+            <input
+              id="monthInput"
+              type="number"
+              min="1"
+              max="12"
+              value="9"
+            >
+          </label>
+
+
+          <label>
+            시작일
+
+            <input
+              id="startDayInput"
+              type="number"
+              min="1"
+              max="31"
+              value="15"
+            >
+          </label>
+
+
+          <label>
+            종료일
+
+            <input
+              id="endDayInput"
+              type="number"
+              min="1"
+              max="31"
+              value="30"
+            >
+          </label>
+
+        </div>
+
+
+        <div class="button-row">
+
+          <button
+            id="generateButton"
+            class="primary-button"
+            type="button"
+          >
+            자동 배정
+          </button>
+
+
+          <button
+            id="copyButton"
+            class="secondary-button"
+            type="button"
+          >
+            텍스트 복사
+          </button>
+
+        </div>
+
+      </section>
+
+
+      <!-- 연차 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <div>
+
+            <h2>연차 / 휴무</h2>
+
+            <p class="help-text">
+              날짜별로 쉬는 작업자를 선택합니다.
+              연차자의 원래 업무는 누적 횟수에서는 수행한 것으로 계산합니다.
+            </p>
+
+          </div>
+
+
+          <button
+            id="clearLeaveButton"
+            class="secondary-button"
+            type="button"
+          >
+            연차 전체 삭제
+          </button>
+
+        </div>
+
+
+        <div class="form-grid leave-form">
+
+          <label>
+            연차 날짜
+
+            <input
+              id="leaveDateInput"
+              type="date"
+            >
+          </label>
+
+        </div>
+
+
+        <div
+          id="leaveWorkersContainer"
+          class="worker-check-grid"
+        >
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="김"
+              data-leave-worker
+            >
+            <span>김</span>
+          </label>
+
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="탁"
+              data-leave-worker
+            >
+            <span>탁</span>
+          </label>
+
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="임"
+              data-leave-worker
+            >
+            <span>임</span>
+          </label>
+
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="박"
+              data-leave-worker
+            >
+            <span>박</span>
+          </label>
+
+
+          <label class="check-card">
+            <input
+              type="checkbox"
+              value="류"
+              data-leave-worker
+            >
+            <span>류</span>
+          </label>
+
+        </div>
+
+
+        <div class="button-row">
+
+          <button
+            id="saveLeaveButton"
+            class="primary-button"
+            type="button"
+          >
+            연차 저장
+          </button>
+
+        </div>
+
+
+        <div
+          id="leaveList"
+          class="leave-list"
+        >
+          <div class="empty-state">
+            등록된 연차가 없습니다.
+          </div>
+        </div>
+
+      </section>
+
+
+      <!-- GitHub 설정 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <div>
+
+            <h2>GitHub 저장 설정</h2>
+
+            <p class="help-text">
+              GitHub 저장소 정보를 한 번만 입력하면
+              배정 기록을 저장하기 편해집니다.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="form-grid github-form">
+
+          <label>
+            GitHub 사용자명
+
+            <input
+              id="githubOwnerInput"
+              type="text"
+              placeholder="예: acencoff22-rgb"
+              autocomplete="off"
+            >
+          </label>
+
+
+          <label>
+            저장소명
+
+            <input
+              id="githubRepoInput"
+              type="text"
+              placeholder="예: assignment-app"
+              autocomplete="off"
+            >
+          </label>
+
+
+          <label>
+            브랜치
+
+            <input
+              id="githubBranchInput"
+              type="text"
+              value="main"
+              autocomplete="off"
+            >
+          </label>
+
+
+          <label>
+            데이터 경로
+
+            <input
+              id="githubDataPathInput"
+              type="text"
+              value="data/history.json"
+              autocomplete="off"
+            >
+          </label>
+
+        </div>
+
+
+        <div class="button-row">
+
+          <button
+            id="saveGithubConfigButton"
+            class="secondary-button"
+            type="button"
+          >
+            GitHub 설정 저장
+          </button>
+
+
+          <button
+            id="testGithubButton"
+            class="secondary-button"
+            type="button"
+          >
+            저장소 확인
+          </button>
+
+        </div>
+
+
+        <div
+          id="githubConfigStatus"
+          class="github-config-status"
+        >
+          GitHub 저장소가 설정되지 않았습니다.
+        </div>
+
+      </section>
+
+
+      <!-- 배정 규칙 -->
+
+      <section class="panel">
+
+        <h2>배정 규칙</h2>
+
+
+        <div class="rule-list">
+
+          <div class="rule-item">
+            <strong>볼분리</strong>
+            <span>
+              김 · 탁 · 임만 가능
+            </span>
+          </div>
+
+
+          <div class="rule-item">
+            <strong>볼분리 보조</strong>
+            <span>
+              김 · 탁 · 임만 가능
+            </span>
+          </div>
+
+
+          <div class="rule-item">
+            <strong>류</strong>
+            <span>
+              설거지 및 성형보조 /
+              분쇄 및 성형보조 /
+              성형 및 분쇄보조
+            </span>
+          </div>
+
+
+          <div class="rule-item">
+            <strong>박</strong>
+            <span>
+              설거지 및 성형보조 /
+              분쇄 및 성형보조
+            </span>
+          </div>
+
+
+          <div class="rule-item">
+            <strong>연차</strong>
+            <span>
+              실제 배정에서는 제외하고
+              원래 업무는 누적 횟수에 반영
+            </span>
+          </div>
+
+
+          <div class="rule-item">
+            <strong>누적</strong>
+            <span>
+              최근 6개월 상세 기록 +
+              이전 기록의 압축 누적값
+            </span>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- 결과 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <h2>생성 결과</h2>
+
+          <span
+            id="statusText"
+            class="status"
+          >
+            아직 생성되지 않았습니다.
+          </span>
+
+        </div>
+
+
+        <pre
+          id="resultText"
+          class="result-text"
+        ></pre>
+
+      </section>
+
+
+      <!-- 업무별 -->
+
+      <section class="panel">
+
+        <h2>업무별 횟수</h2>
+
+
+        <div
+          id="summaryContainer"
+          class="summary-grid"
+        >
+
+          <div class="empty-state">
+            배정표를 생성하면 횟수가 표시됩니다.
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- 작업자별 -->
+
+      <section class="panel">
+
+        <h2>작업자별 횟수</h2>
+
+
+        <div id="workerSummaryContainer">
+
+          <div class="empty-state">
+            배정표를 생성하면 작업자별 횟수가 표시됩니다.
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <!-- GitHub 저장 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <div>
+
+            <h2>GitHub 저장</h2>
+
+            <p class="help-text">
+              현재 데이터를 JSON으로 복사하고
+              GitHub의 history.json 편집 화면을 엽니다.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="button-row">
+
+          <button
+            id="prepareGithubButton"
+            class="primary-button"
+            type="button"
+          >
+            GitHub 저장 준비
+          </button>
+
+
+          <button
+            id="copyJsonButton"
+            class="secondary-button"
+            type="button"
+          >
+            JSON 복사
+          </button>
+
+
+          <button
+            id="openGithubEditButton"
+            class="secondary-button"
+            type="button"
+          >
+            GitHub 편집 화면
+          </button>
+
+        </div>
+
+
+        <div
+          id="githubSaveStatus"
+          class="github-save-status"
+        >
+          저장할 데이터가 아직 없습니다.
+        </div>
+
+      </section>
+
+
+      <!-- 데이터 관리 -->
+
+      <section class="panel">
+
+        <div class="section-header">
+
+          <div>
+
+            <h2>데이터 관리</h2>
+
+            <p class="help-text">
+              JSON 파일을 이용해 전체 데이터를 백업하고 복원할 수 있습니다.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="button-row">
+
+          <button
+            id="loadRepositoryButton"
+            class="secondary-button"
+            type="button"
+          >
+            GitHub 기록 불러오기
+          </button>
+
+
+          <button
+            id="exportButton"
+            class="secondary-button"
+            type="button"
+          >
+            데이터 백업
+          </button>
+
+
+          <label
+            for="importInput"
+            class="secondary-button file-button"
+          >
+            데이터 복원
+          </label>
+
+
+          <input
+            id="importInput"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          >
+
+
+          <button
+            id="clearDataButton"
+            class="danger-button"
+            type="button"
+          >
+            전체 데이터 삭제
+          </button>
+
+        </div>
+
+      </section>
+
+    </main>
+
+
+    <footer>
+
+      <p>
+        GitHub Pages에서 실행되는 업무 배정 앱
+      </p>
+
+    </footer>
+
+  </div>
+
+
+  <script src="app.js"></script>
+
+</body>
+</html>
