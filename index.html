@@ -13,49 +13,99 @@
     <h1>업무 배정표</h1>
     <p>누적 이력을 반영한 자동 업무 배정</p>
   </div>
-  <button id="themeToggle" class="secondary-button" type="button">다크모드</button>
+
+  <button id="themeToggle" class="secondary-button" type="button">
+    다크모드
+  </button>
 </header>
 
 <main class="container">
 
   <section class="card">
     <h2>배정 설정</h2>
+
     <div class="form-grid">
-      <label>연도<input id="yearInput" type="number" min="2020" max="2100" value="2026"></label>
-      <label>월<input id="monthInput" type="number" min="1" max="12" value="9"></label>
-      <label>시작일<input id="startDayInput" type="number" min="1" max="31" value="15"></label>
-      <label>종료일<input id="endDayInput" type="number" min="1" max="31" value="30"></label>
+      <label>
+        연도
+        <input id="yearInput" type="number" min="2020" max="2100" value="2026">
+      </label>
+
+      <label>
+        월
+        <input id="monthInput" type="number" min="1" max="12" value="9">
+      </label>
+
+      <label>
+        시작일
+        <input id="startDayInput" type="number" min="1" max="31" value="15">
+      </label>
+
+      <label>
+        종료일
+        <input id="endDayInput" type="number" min="1" max="31" value="30">
+      </label>
     </div>
+
     <div class="button-row">
-      <button id="generateButton" class="primary-button" type="button">배정표 생성</button>
-      <button id="copyButton" class="secondary-button" type="button">배정표 복사</button>
+      <button id="generateButton" class="primary-button" type="button">
+        배정표 생성
+      </button>
+
+      <button id="copyButton" class="secondary-button" type="button">
+        배정표 복사
+      </button>
+
+      <button id="printButton" class="secondary-button" type="button">
+        배정표 출력
+      </button>
+
+      <button id="printCalendarButton" class="secondary-button" type="button">
+        달력 출력
+      </button>
     </div>
-    <p id="statusText" class="status-text">아직 생성되지 않았습니다.</p>
+
+    <p id="statusText" class="status-text">
+      아직 생성되지 않았습니다.
+    </p>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
       <div>
         <h2>이름 및 업무명 설정</h2>
-        <p>화면에 표시되는 이름만 변경합니다. 기존 누적 이력과 배정 규칙은 그대로 유지됩니다.</p>
+        <p>
+          화면에 표시되는 이름만 변경합니다.
+          기존 누적 이력과 배정 규칙은 그대로 유지됩니다.
+        </p>
       </div>
     </div>
+
     <div class="settings-columns">
       <div>
         <h3>작업자 이름</h3>
         <div id="workerNameSettings" class="name-settings-grid"></div>
       </div>
+
       <div>
         <h3>업무명</h3>
         <div id="jobNameSettings" class="name-settings-grid"></div>
       </div>
     </div>
+
     <div class="button-row">
-      <button id="saveNameSettingsButton" class="primary-button" type="button">이름 설정 저장</button>
-      <button id="resetNameSettingsButton" class="secondary-button" type="button">기본값 복원</button>
+      <button id="saveNameSettingsButton" class="primary-button" type="button">
+        이름 설정 저장
+      </button>
+
+      <button id="resetNameSettingsButton" class="secondary-button" type="button">
+        기본값 복원
+      </button>
     </div>
+
     <p id="nameSettingsStatus" class="status-text"></p>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
@@ -64,81 +114,216 @@
         <p>해당 날짜에 근무하지 않는 작업자를 선택합니다.</p>
       </div>
     </div>
+
     <div class="leave-form">
-      <label>날짜<input id="leaveDateInput" type="date"></label>
+      <label>
+        날짜
+        <input id="leaveDateInput" type="date">
+      </label>
+
       <div class="worker-checkboxes">
-        <label class="checkbox-label"><input type="checkbox" value="김" data-leave-worker><span data-worker-label="김">김</span></label>
-        <label class="checkbox-label"><input type="checkbox" value="탁" data-leave-worker><span data-worker-label="탁">탁</span></label>
-        <label class="checkbox-label"><input type="checkbox" value="임" data-leave-worker><span data-worker-label="임">임</span></label>
-        <label class="checkbox-label"><input type="checkbox" value="박" data-leave-worker><span data-worker-label="박">박</span></label>
-        <label class="checkbox-label"><input type="checkbox" value="류" data-leave-worker><span data-worker-label="류">류</span></label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" value="김" data-leave-worker>
+          <span data-worker-label="김">김</span>
+        </label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" value="탁" data-leave-worker>
+          <span data-worker-label="탁">탁</span>
+        </label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" value="임" data-leave-worker>
+          <span data-worker-label="임">임</span>
+        </label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" value="박" data-leave-worker>
+          <span data-worker-label="박">박</span>
+        </label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" value="류" data-leave-worker>
+          <span data-worker-label="류">류</span>
+        </label>
+
       </div>
+
       <div class="button-row">
-        <button id="saveLeaveButton" class="primary-button" type="button">연차 저장</button>
-        <button id="clearLeaveButton" class="secondary-button" type="button">전체 연차 삭제</button>
+        <button id="saveLeaveButton" class="primary-button" type="button">
+          연차 저장
+        </button>
+
+        <button id="clearLeaveButton" class="secondary-button" type="button">
+          전체 연차 삭제
+        </button>
       </div>
     </div>
+
     <div id="leaveList" class="leave-list"></div>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
       <div>
         <h2>GitHub 데이터</h2>
-        <p>누적 배정 이력을 GitHub의 history.json에 저장하거나 불러옵니다.</p>
+        <p>
+          누적 배정 이력을 GitHub의 history.json에 저장하거나 불러옵니다.
+        </p>
       </div>
     </div>
+
     <div class="form-grid">
-      <label>GitHub 사용자명<input id="githubOwnerInput" type="text" placeholder="예: acencoff22-rgb"></label>
-      <label>저장소<input id="githubRepoInput" type="text" placeholder="예: assignment-app"></label>
-      <label>브랜치<input id="githubBranchInput" type="text" value="main"></label>
-      <label>데이터 경로<input id="githubDataPathInput" type="text" value="data/history.json"></label>
+      <label>
+        GitHub 사용자명
+        <input
+          id="githubOwnerInput"
+          type="text"
+          placeholder="예: acencoff22-rgb"
+        >
+      </label>
+
+      <label>
+        저장소
+        <input
+          id="githubRepoInput"
+          type="text"
+          placeholder="예: assignment-app"
+        >
+      </label>
+
+      <label>
+        브랜치
+        <input
+          id="githubBranchInput"
+          type="text"
+          value="main"
+        >
+      </label>
+
+      <label>
+        데이터 경로
+        <input
+          id="githubDataPathInput"
+          type="text"
+          value="data/history.json"
+        >
+      </label>
     </div>
+
     <div class="button-row">
-      <button id="saveGithubConfigButton" class="secondary-button" type="button">설정 저장</button>
-      <button id="testGithubButton" class="secondary-button" type="button">GitHub 불러오기</button>
-      <button id="loadRepositoryButton" class="secondary-button" type="button">기록 새로고침</button>
-      <button id="prepareGithubButton" class="primary-button" type="button">GitHub 저장 준비</button>
-      <button id="openGithubEditButton" class="secondary-button" type="button">GitHub 편집 열기</button>
-      <button id="copyJsonButton" class="secondary-button" type="button">JSON 복사</button>
+
+      <button id="saveGithubConfigButton" class="secondary-button" type="button">
+        설정 저장
+      </button>
+
+      <button id="testGithubButton" class="secondary-button" type="button">
+        GitHub 불러오기
+      </button>
+
+      <button id="loadRepositoryButton" class="secondary-button" type="button">
+        기록 새로고침
+      </button>
+
+      <button id="prepareGithubButton" class="primary-button" type="button">
+        GitHub 저장 준비
+      </button>
+
+      <button id="openGithubEditButton" class="secondary-button" type="button">
+        GitHub 편집 열기
+      </button>
+
+      <button id="copyJsonButton" class="secondary-button" type="button">
+        JSON 복사
+      </button>
+
     </div>
+
     <p id="githubConfigStatus" class="status-text"></p>
     <p id="githubSaveStatus" class="status-text"></p>
     <p id="dataStatus" class="status-text"></p>
   </section>
 
+
   <section class="card">
     <div class="section-title-row">
       <div>
         <h2>파일 백업</h2>
-        <p>현재 누적 데이터 전체를 JSON 파일로 저장하거나 기존 백업을 복원합니다.</p>
+        <p>
+          현재 누적 데이터 전체를 JSON 파일로 저장하거나
+          기존 백업을 복원합니다.
+        </p>
       </div>
     </div>
+
     <div class="button-row">
-      <button id="exportButton" class="primary-button" type="button">JSON 백업</button>
-      <label class="secondary-button file-button">JSON 복원<input id="importInput" type="file" accept="application/json,.json" hidden></label>
-      <button id="clearDataButton" class="secondary-button" type="button">전체 데이터 삭제</button>
+
+      <button id="exportButton" class="primary-button" type="button">
+        JSON 백업
+      </button>
+
+      <label class="secondary-button file-button">
+        JSON 복원
+        <input
+          id="importInput"
+          type="file"
+          accept="application/json,.json"
+          hidden
+        >
+      </label>
+
+      <button id="clearDataButton" class="secondary-button" type="button">
+        전체 데이터 삭제
+      </button>
+
     </div>
   </section>
 
+
   <section class="card calendar-card">
     <div class="calendar-header">
-      <button id="previousMonthButton" class="icon-button" type="button">‹</button>
-      <h2 id="calendarTitle">2026년 9월</h2>
-      <button id="nextMonthButton" class="icon-button" type="button">›</button>
+
+      <button
+        id="previousMonthButton"
+        class="icon-button"
+        type="button"
+      >
+        ‹
+      </button>
+
+      <h2 id="calendarTitle">
+        2026년 9월
+      </h2>
+
+      <button
+        id="nextMonthButton"
+        class="icon-button"
+        type="button"
+      >
+        ›
+      </button>
+
     </div>
+
     <div id="calendarContainer"></div>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
       <div>
         <h2>배정 결과</h2>
-        <p>생성된 원본 배정표와 연차 표시를 확인합니다.</p>
+        <p>
+          생성된 원본 배정표와 연차 표시를 확인합니다.
+        </p>
       </div>
     </div>
+
     <pre id="resultText" class="result-text"></pre>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
@@ -146,36 +331,76 @@
         <h2>업무별 요약</h2>
       </div>
     </div>
+
     <div id="summaryContainer" class="summary-grid"></div>
   </section>
+
 
   <section class="card">
     <div class="section-title-row">
       <div>
         <h2>작업자별 누적 현황</h2>
-        <p>최근 6개월 상세 이력과 이전 기간 압축 누적값을 함께 반영합니다.</p>
+        <p>
+          최근 6개월 상세 이력과 이전 기간 압축 누적값을 함께 반영합니다.
+        </p>
       </div>
     </div>
+
     <div id="workerSummaryContainer"></div>
   </section>
 
 </main>
 
+
 <div id="dayDetailModal" class="modal" hidden>
+
   <div class="modal-backdrop"></div>
+
   <div class="modal-content">
+
     <div class="modal-header">
-      <h2 id="dayDetailTitle">날짜 상세</h2>
-      <button id="dayDetailCloseButton" class="icon-button" type="button">×</button>
+
+      <h2 id="dayDetailTitle">
+        날짜 상세
+      </h2>
+
+      <button
+        id="dayDetailCloseButton"
+        class="icon-button"
+        type="button"
+      >
+        ×
+      </button>
+
     </div>
+
     <div id="dayDetailBody"></div>
+
     <div class="button-row">
-      <button id="dayDetailLeaveButton" class="secondary-button" type="button">이 날짜 연차 관리</button>
-      <button id="closeDayDetailButton" class="secondary-button" type="button">닫기</button>
+
+      <button
+        id="dayDetailLeaveButton"
+        class="secondary-button"
+        type="button"
+      >
+        이 날짜 연차 관리
+      </button>
+
+      <button
+        id="closeDayDetailButton"
+        class="secondary-button"
+        type="button"
+      >
+        닫기
+      </button>
+
     </div>
+
   </div>
 </div>
 
-<script src="app.js"></script>
+
+<script type="module" src="js/app.js"></script>
+
 </body>
 </html>
