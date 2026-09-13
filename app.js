@@ -5,32 +5,27 @@
  * 업무 배정표 자동 생성기
  * =========================================================
  *
- * 저장 구조
- *
- * GitHub
- *   data/history.json
- *
- * 브라우저
- *   localStorage
- *
- * GitHub Pages
- *   history.json 읽기 가능
- *
- * 주의
+ * 기능
  * ---------------------------------------------------------
- * 브라우저에 GitHub 토큰을 저장하지 않는다.
- * 따라서 저장은
- *
- * 1. JSON 자동 복사
- * 2. GitHub 편집 화면 열기
- * 3. 사용자가 Commit
- *
- * 방식으로 처리한다.
+ * 1. 월 전체 자동 배정
+ * 2. 최근 6개월 누적 균형
+ * 3. 연차 관리
+ * 4. 월간 달력 표시
+ * 5. 텍스트 결과
+ * 6. JSON 백업/복원
+ * 7. GitHub history.json 읽기
+ * 8. GitHub 편집 화면 열기
+ * 9. 다크모드
  * =========================================================
  */
 
+
+/* =========================================================
+ * 기본 설정
+ * ======================================================= */
+
 const STORAGE_KEY =
-  "assignment-app-data-v4";
+  "assignment-app-data-v5";
 
 const GITHUB_CONFIG_KEY =
   "assignment-app-github-config-v1";
@@ -38,7 +33,7 @@ const GITHUB_CONFIG_KEY =
 const THEME_KEY =
   "assignment-app-theme";
 
-const DATA_VERSION = 4;
+const DATA_VERSION = 5;
 
 const RETENTION_MONTHS = 6;
 
@@ -49,7 +44,7 @@ const MAX_STATES_PER_SIGNATURE = 2;
 
 /* =========================================================
  * 작업자
- * ========================================================= */
+ * ======================================================= */
 
 const WORKERS = [
   "김",
@@ -62,7 +57,7 @@ const WORKERS = [
 
 /* =========================================================
  * 업무
- * ========================================================= */
+ * ======================================================= */
 
 const JOBS = [
   "볼분리",
@@ -74,8 +69,8 @@ const JOBS = [
 
 
 /* =========================================================
- * 작업 제한
- * ========================================================= */
+ * 업무 제한
+ * ======================================================= */
 
 const MAIN_WORKERS = [
   "김",
@@ -97,7 +92,7 @@ const PARK_ALLOWED_JOBS = [
 
 /* =========================================================
  * 전역 상태
- * ========================================================= */
+ * ======================================================= */
 
 let appData =
   createEmptyData();
@@ -113,10 +108,14 @@ let currentOriginalCounts = null;
 
 let copiedText = "";
 
+let calendarYear = 2026;
+
+let calendarMonth = 9;
+
 
 /* =========================================================
  * 빈 데이터
- * ========================================================= */
+ * ======================================================= */
 
 function createEmptyWorkerCounts() {
   const result = {};
@@ -136,6 +135,7 @@ function createEmptyWorkerCounts() {
   return result;
 }
 
+
 function createEmptyData() {
   return {
     version:
@@ -153,6 +153,7 @@ function createEmptyData() {
   };
 }
 
+
 function createEmptyGithubConfig() {
   return {
     owner: "",
@@ -164,11 +165,9 @@ function createEmptyGithubConfig() {
 }
 
 
-/* =========================================================
- * 복제
- * ========================================================= */
-
-function deepClone(value) {
+function deepClone(
+  value,
+) {
   return JSON.parse(
     JSON.stringify(value),
   );
@@ -177,7 +176,7 @@ function deepClone(value) {
 
 /* =========================================================
  * 데이터 정규화
- * ========================================================= */
+ * ======================================================= */
 
 function normalizeWorkerCounts(
   input,
@@ -342,251 +341,42 @@ function normalizeHistory(
 function normalizeData(
   input,
 ) {
-  const result =
-    createEmptyData();
-
   if (
     !input ||
     typeof input !==
       "object"
   ) {
-    return result;
+    return createEmptyData();
   }
-
-  result.baseline =
-    normalizeWorkerCounts(
-      input.baseline,
-    );
-
-  result.history =
-    normalizeHistory(
-      input.history,
-    );
-
-  result.leave =
-    normalizeLeaveMap(
-      input.leave,
-    );
-
-  return result;
-}
-
-
-/* =========================================================
- * GitHub 설정 저장/불러오기
- * ========================================================= */
-
-function loadGithubConfig() {
-  try {
-    const raw =
-      localStorage.getItem(
-        GITHUB_CONFIG_KEY,
-      );
-
-    if (!raw) {
-      githubConfig =
-        createEmptyGithubConfig();
-
-      return;
-    }
-
-    const parsed =
-      JSON.parse(raw);
-
-    githubConfig = {
-      ...createEmptyGithubConfig(),
-
-      ...parsed,
-    };
-  } catch (error) {
-    console.error(
-      "GitHub 설정 불러오기 실패:",
-      error,
-    );
-
-    githubConfig =
-      createEmptyGithubConfig();
-  }
-}
-
-
-function saveGithubConfig() {
-  try {
-    localStorage.setItem(
-      GITHUB_CONFIG_KEY,
-      JSON.stringify(
-        githubConfig,
-      ),
-    );
-
-    updateGithubForm();
-
-    updateGithubConfigStatus();
-  } catch (error) {
-    console.error(
-      "GitHub 설정 저장 실패:",
-      error,
-    );
-
-    alert(
-      "GitHub 설정을 브라우저에 저장하지 못했습니다.",
-    );
-  }
-}
-
-
-/* =========================================================
- * GitHub 설정 읽기
- * ========================================================= */
-
-function readGithubInputs() {
-  const owner =
-    document.getElementById(
-      "githubOwnerInput",
-    ).value.trim();
-
-  const repo =
-    document.getElementById(
-      "githubRepoInput",
-    ).value.trim();
-
-  const branch =
-    document.getElementById(
-      "githubBranchInput",
-    ).value.trim() ||
-    "main";
-
-  const dataPath =
-    document.getElementById(
-      "githubDataPathInput",
-    ).value.trim() ||
-    "data/history.json";
-
-
-  if (!owner) {
-    throw new Error(
-      "GitHub 사용자명을 입력해주세요.",
-    );
-  }
-
-  if (!repo) {
-    throw new Error(
-      "GitHub 저장소명을 입력해주세요.",
-    );
-  }
-
-  if (!branch) {
-    throw new Error(
-      "브랜치를 입력해주세요.",
-    );
-  }
-
-  if (!dataPath) {
-    throw new Error(
-      "데이터 경로를 입력해주세요.",
-    );
-  }
-
 
   return {
-    owner,
-    repo,
-    branch,
-    dataPath:
-      dataPath.replace(
-        /^\/+/,
-        "",
+    version:
+      DATA_VERSION,
+
+    retentionMonths:
+      RETENTION_MONTHS,
+
+    baseline:
+      normalizeWorkerCounts(
+        input.baseline,
+      ),
+
+    history:
+      normalizeHistory(
+        input.history,
+      ),
+
+    leave:
+      normalizeLeaveMap(
+        input.leave,
       ),
   };
 }
 
 
 /* =========================================================
- * GitHub 설정 화면
- * ========================================================= */
-
-function updateGithubForm() {
-  const owner =
-    document.getElementById(
-      "githubOwnerInput",
-    );
-
-  const repo =
-    document.getElementById(
-      "githubRepoInput",
-    );
-
-  const branch =
-    document.getElementById(
-      "githubBranchInput",
-    );
-
-  const dataPath =
-    document.getElementById(
-      "githubDataPathInput",
-    );
-
-
-  if (owner) {
-    owner.value =
-      githubConfig.owner;
-  }
-
-  if (repo) {
-    repo.value =
-      githubConfig.repo;
-  }
-
-  if (branch) {
-    branch.value =
-      githubConfig.branch;
-  }
-
-  if (dataPath) {
-    dataPath.value =
-      githubConfig.dataPath;
-  }
-}
-
-
-function updateGithubConfigStatus() {
-  const element =
-    document.getElementById(
-      "githubConfigStatus",
-    );
-
-  if (!element) {
-    return;
-  }
-
-
-  if (
-    !githubConfig.owner ||
-    !githubConfig.repo
-  ) {
-    element.textContent =
-      "GitHub 저장소가 설정되지 않았습니다.";
-
-    element.classList.remove(
-      "success",
-    );
-
-    return;
-  }
-
-
-  element.textContent =
-    `저장소: ${githubConfig.owner}/${githubConfig.repo}\n브랜치: ${githubConfig.branch}\n데이터: ${githubConfig.dataPath}`;
-
-  element.classList.add(
-    "success",
-  );
-}
-
-
-/* =========================================================
- * localStorage 데이터
- * ========================================================= */
+ * 로컬 데이터
+ * ======================================================= */
 
 function loadLocalData() {
   try {
@@ -599,12 +389,9 @@ function loadLocalData() {
       return false;
     }
 
-    const parsed =
-      JSON.parse(raw);
-
     appData =
       normalizeData(
-        parsed,
+        JSON.parse(raw),
       );
 
     return true;
@@ -639,8 +426,179 @@ function saveLocalData() {
 
 
 /* =========================================================
- * GitHub 데이터 URL
- * ========================================================= */
+ * GitHub 설정
+ * ======================================================= */
+
+function loadGithubConfig() {
+  try {
+    const raw =
+      localStorage.getItem(
+        GITHUB_CONFIG_KEY,
+      );
+
+    if (!raw) {
+      githubConfig =
+        createEmptyGithubConfig();
+
+      return;
+    }
+
+    githubConfig = {
+      ...createEmptyGithubConfig(),
+      ...JSON.parse(raw),
+    };
+  } catch (error) {
+    console.error(
+      "GitHub 설정 불러오기 실패:",
+      error,
+    );
+
+    githubConfig =
+      createEmptyGithubConfig();
+  }
+}
+
+
+function saveGithubConfig() {
+  localStorage.setItem(
+    GITHUB_CONFIG_KEY,
+    JSON.stringify(
+      githubConfig,
+    ),
+  );
+
+  updateGithubForm();
+  updateGithubConfigStatus();
+}
+
+
+function readGithubInputs() {
+  const owner =
+    document.getElementById(
+      "githubOwnerInput",
+    ).value.trim();
+
+  const repo =
+    document.getElementById(
+      "githubRepoInput",
+    ).value.trim();
+
+  const branch =
+    document.getElementById(
+      "githubBranchInput",
+    ).value.trim() ||
+    "main";
+
+  const dataPath =
+    document.getElementById(
+      "githubDataPathInput",
+    ).value.trim() ||
+    "data/history.json";
+
+  if (!owner) {
+    throw new Error(
+      "GitHub 사용자명을 입력해주세요.",
+    );
+  }
+
+  if (!repo) {
+    throw new Error(
+      "GitHub 저장소명을 입력해주세요.",
+    );
+  }
+
+  return {
+    owner,
+    repo,
+    branch,
+    dataPath:
+      dataPath.replace(
+        /^\/+/,
+        "",
+      ),
+  };
+}
+
+
+function updateGithubForm() {
+  const owner =
+    document.getElementById(
+      "githubOwnerInput",
+    );
+
+  const repo =
+    document.getElementById(
+      "githubRepoInput",
+    );
+
+  const branch =
+    document.getElementById(
+      "githubBranchInput",
+    );
+
+  const dataPath =
+    document.getElementById(
+      "githubDataPathInput",
+    );
+
+  if (owner) {
+    owner.value =
+      githubConfig.owner;
+  }
+
+  if (repo) {
+    repo.value =
+      githubConfig.repo;
+  }
+
+  if (branch) {
+    branch.value =
+      githubConfig.branch;
+  }
+
+  if (dataPath) {
+    dataPath.value =
+      githubConfig.dataPath;
+  }
+}
+
+
+function updateGithubConfigStatus() {
+  const element =
+    document.getElementById(
+      "githubConfigStatus",
+    );
+
+  if (!element) {
+    return;
+  }
+
+  if (
+    !githubConfig.owner ||
+    !githubConfig.repo
+  ) {
+    element.textContent =
+      "GitHub 저장소가 설정되지 않았습니다.";
+
+    element.classList.remove(
+      "success",
+    );
+
+    return;
+  }
+
+  element.textContent =
+    `저장소: ${githubConfig.owner}/${githubConfig.repo}\n브랜치: ${githubConfig.branch}\n데이터: ${githubConfig.dataPath}`;
+
+  element.classList.add(
+    "success",
+  );
+}
+
+
+/* =========================================================
+ * GitHub URL
+ * ======================================================= */
 
 function getGithubRawUrl() {
   if (
@@ -650,8 +608,7 @@ function getGithubRawUrl() {
     return null;
   }
 
-
-  const encodedPath =
+  const path =
     githubConfig.dataPath
       .split("/")
       .map(
@@ -662,19 +619,21 @@ function getGithubRawUrl() {
       )
       .join("/");
 
-
   return (
-    `https://raw.githubusercontent.com/` +
-    `${encodeURIComponent(
+    "https://raw.githubusercontent.com/" +
+    encodeURIComponent(
       githubConfig.owner,
-    )}/` +
-    `${encodeURIComponent(
+    ) +
+    "/" +
+    encodeURIComponent(
       githubConfig.repo,
-    )}/` +
-    `${encodeURIComponent(
+    ) +
+    "/" +
+    encodeURIComponent(
       githubConfig.branch,
-    )}/` +
-    `${encodedPath}`
+    ) +
+    "/" +
+    path
   );
 }
 
@@ -687,8 +646,7 @@ function getGithubEditUrl() {
     return null;
   }
 
-
-  const encodedPath =
+  const path =
     githubConfig.dataPath
       .split("/")
       .map(
@@ -699,26 +657,28 @@ function getGithubEditUrl() {
       )
       .join("/");
 
-
   return (
-    `https://github.com/` +
-    `${encodeURIComponent(
+    "https://github.com/" +
+    encodeURIComponent(
       githubConfig.owner,
-    )}/` +
-    `${encodeURIComponent(
+    ) +
+    "/" +
+    encodeURIComponent(
       githubConfig.repo,
-    )}/edit/` +
-    `${encodeURIComponent(
+    ) +
+    "/edit/" +
+    encodeURIComponent(
       githubConfig.branch,
-    )}/` +
-    encodedPath
+    ) +
+    "/" +
+    path
   );
 }
 
 
 /* =========================================================
- * GitHub 기록 불러오기
- * ========================================================= */
+ * GitHub 기록 읽기
+ * ======================================================= */
 
 async function loadRepositoryData(
   showAlert = true,
@@ -727,7 +687,6 @@ async function loadRepositoryData(
     document.getElementById(
       "dataStatus",
     );
-
 
   if (
     !githubConfig.owner ||
@@ -738,30 +697,20 @@ async function loadRepositoryData(
         "GitHub 저장소 미설정";
     }
 
-    if (showAlert) {
-      alert(
-        "먼저 GitHub 저장소 정보를 입력해주세요.",
-      );
-    }
-
     return false;
   }
 
-
   const rawUrl =
     getGithubRawUrl();
-
 
   if (!rawUrl) {
     return false;
   }
 
-
   if (status) {
     status.textContent =
       "GitHub 기록 불러오는 중...";
   }
-
 
   try {
     const response =
@@ -773,25 +722,14 @@ async function loadRepositoryData(
         },
       );
 
-
     if (
       response.status ===
       404
     ) {
-      appData =
-        createEmptyData();
-
-      saveLocalData();
-
-      renderLeaveList();
-
-      updateDataStatus();
-
       if (status) {
         status.textContent =
           "GitHub history.json 없음";
       }
-
 
       if (showAlert) {
         alert(
@@ -802,43 +740,32 @@ async function loadRepositoryData(
       return false;
     }
 
-
     if (!response.ok) {
       throw new Error(
         `HTTP ${response.status}`,
       );
     }
 
-
-    const json =
-      await response.json();
-
-
     appData =
       normalizeData(
-        json,
+        await response.json(),
       );
-
 
     saveLocalData();
 
     renderLeaveList();
-
-    updateDataStatus();
-
+    renderCalendar();
 
     if (status) {
       status.textContent =
         "GitHub 기록 불러오기 완료";
     }
 
-
     if (showAlert) {
       alert(
         "GitHub 저장소의 기록을 불러왔습니다.",
       );
     }
-
 
     return true;
   } catch (error) {
@@ -847,12 +774,15 @@ async function loadRepositoryData(
       error,
     );
 
+    const hasLocal =
+      loadLocalData();
 
     if (status) {
       status.textContent =
-        "GitHub 기록 불러오기 실패";
+        hasLocal
+          ? "GitHub 연결 실패 · 기존 기록 사용"
+          : "GitHub 기록 불러오기 실패";
     }
-
 
     if (showAlert) {
       alert(
@@ -860,151 +790,14 @@ async function loadRepositoryData(
       );
     }
 
-
     return false;
   }
 }
 
 
 /* =========================================================
- * GitHub 저장소 확인
- * ========================================================= */
-
-async function handleTestGithub() {
-  try {
-    githubConfig =
-      readGithubInputs();
-
-    saveGithubConfig();
-
-    const loaded =
-      await loadRepositoryData(
-        false,
-      );
-
-    if (loaded) {
-      alert(
-        "GitHub 저장소와 history.json을 확인했습니다.",
-      );
-    } else {
-      alert(
-        "저장소 정보는 정상적으로 설정되었지만 history.json을 확인하지 못했습니다.\n\n파일이 아직 없다면 data/history.json을 먼저 만들어주세요.",
-      );
-    }
-  } catch (error) {
-    alert(
-      error instanceof Error
-        ? error.message
-        : "GitHub 설정을 확인해주세요.",
-    );
-  }
-}
-
-
-/* =========================================================
- * 월 계산
- * ========================================================= */
-
-function getMonthKey(
-  year,
-  month,
-) {
-  return [
-    String(year).padStart(
-      4,
-      "0",
-    ),
-
-    String(month).padStart(
-      2,
-      "0",
-    ),
-  ].join("-");
-}
-
-
-function parseMonthKey(
-  key,
-) {
-  const match =
-    /^(\d{4})-(\d{2})$/.exec(
-      key,
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  return {
-    year:
-      Number(
-        match[1],
-      ),
-
-    month:
-      Number(
-        match[2],
-      ),
-  };
-}
-
-
-function addMonths(
-  year,
-  month,
-  offset,
-) {
-  const date =
-    new Date(
-      year,
-      month - 1 + offset,
-      1,
-    );
-
-  return {
-    year:
-      date.getFullYear(),
-
-    month:
-      date.getMonth() + 1,
-  };
-}
-
-
-function getRollingMonthKeys(
-  year,
-  month,
-) {
-  const keys = [];
-
-  for (
-    let offset =
-      -(RETENTION_MONTHS - 1);
-    offset <= 0;
-    offset += 1
-  ) {
-    const date =
-      addMonths(
-        year,
-        month,
-        offset,
-      );
-
-    keys.push(
-      getMonthKey(
-        date.year,
-        date.month,
-      ),
-    );
-  }
-
-  return keys;
-}
-
-
-/* =========================================================
  * 날짜
- * ========================================================= */
+ * ======================================================= */
 
 function getDateInfo(
   year,
@@ -1058,9 +851,260 @@ function formatDateKey(
 }
 
 
+function getMonthKey(
+  year,
+  month,
+) {
+  return (
+    `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`
+  );
+}
+
+
+function parseMonthKey(
+  key,
+) {
+  const match =
+    /^(\d{4})-(\d{2})$/.exec(
+      key,
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year:
+      Number(match[1]),
+
+    month:
+      Number(match[2]),
+  };
+}
+
+
+function getDaysInMonth(
+  year,
+  month,
+) {
+  return new Date(
+    year,
+    month,
+    0,
+  ).getDate();
+}
+
+
 /* =========================================================
- * 누적 데이터
- * ========================================================= */
+ * 누적 기간
+ * ======================================================= */
+
+function addMonths(
+  year,
+  month,
+  offset,
+) {
+  const date =
+    new Date(
+      year,
+      month - 1 + offset,
+      1,
+    );
+
+  return {
+    year:
+      date.getFullYear(),
+
+    month:
+      date.getMonth() + 1,
+  };
+}
+
+
+function getRollingMonthKeys(
+  year,
+  month,
+) {
+  const result = [];
+
+  for (
+    let offset =
+      -(RETENTION_MONTHS - 1);
+    offset <= 0;
+    offset += 1
+  ) {
+    const date =
+      addMonths(
+        year,
+        month,
+        offset,
+      );
+
+    result.push(
+      getMonthKey(
+        date.year,
+        date.month,
+      ),
+    );
+  }
+
+  return result;
+}
+
+
+/* =========================================================
+ * 업무 제한
+ * ======================================================= */
+
+function isAllowed(
+  worker,
+  job,
+) {
+  if (
+    job === "볼분리" ||
+    job === "볼분리 보조"
+  ) {
+    return MAIN_WORKERS.includes(
+      worker,
+    );
+  }
+
+  if (
+    worker === "박"
+  ) {
+    return PARK_ALLOWED_JOBS.includes(
+      job,
+    );
+  }
+
+  if (
+    worker === "류"
+  ) {
+    return LIU_JOBS.includes(
+      job,
+    );
+  }
+
+  return true;
+}
+
+
+/* =========================================================
+ * 순열
+ * ======================================================= */
+
+function generatePermutations(
+  items,
+) {
+  if (
+    items.length <= 1
+  ) {
+    return [
+      items.slice(),
+    ];
+  }
+
+  const result = [];
+
+  for (
+    let i = 0;
+    i < items.length;
+    i += 1
+  ) {
+    const current =
+      items[i];
+
+    const remaining = [
+      ...items.slice(
+        0,
+        i,
+      ),
+
+      ...items.slice(
+        i + 1,
+      ),
+    ];
+
+    const children =
+      generatePermutations(
+        remaining,
+      );
+
+    for (
+      const child of children
+    ) {
+      result.push([
+        current,
+        ...child,
+      ]);
+    }
+  }
+
+  return result;
+}
+
+
+/* =========================================================
+ * 하루 후보 생성
+ * ======================================================= */
+
+function generateDailyCandidates() {
+  const result = [];
+
+  const permutations =
+    generatePermutations(
+      WORKERS,
+    );
+
+  for (
+    const workerOrder
+      of permutations
+  ) {
+    const candidate = {};
+
+    let valid = true;
+
+    for (
+      let i = 0;
+      i < JOBS.length;
+      i += 1
+    ) {
+      const job =
+        JOBS[i];
+
+      const worker =
+        workerOrder[i];
+
+      if (
+        !isAllowed(
+          worker,
+          job,
+        )
+      ) {
+        valid = false;
+        break;
+      }
+
+      candidate[job] =
+        worker;
+    }
+
+    if (!valid) {
+      continue;
+    }
+
+    result.push(
+      candidate,
+    );
+  }
+
+  return result;
+}
+
+
+/* =========================================================
+ * 카운트
+ * ======================================================= */
 
 function addWorkerCounts(
   base,
@@ -1076,7 +1120,6 @@ function addWorkerCounts(
       extra,
     );
 
-
   for (
     const worker of WORKERS
   ) {
@@ -1087,7 +1130,6 @@ function addWorkerCounts(
         source[worker][job];
     }
   }
-
 
   return result;
 }
@@ -1101,7 +1143,6 @@ function addAssignmentToCounts(
     normalizeWorkerCounts(
       counts,
     );
-
 
   for (
     const job of JOBS
@@ -1117,10 +1158,41 @@ function addAssignmentToCounts(
       1;
   }
 
+  return result;
+}
+
+
+function calculateOriginalCounts(
+  schedule,
+) {
+  const result =
+    createEmptyWorkerCounts();
+
+  for (
+    const day of schedule
+  ) {
+    for (
+      const job of JOBS
+    ) {
+      const worker =
+        day[job];
+
+      if (!worker) {
+        continue;
+      }
+
+      result[worker][job] +=
+        1;
+    }
+  }
 
   return result;
 }
 
+
+/* =========================================================
+ * 시작 누적값
+ * ======================================================= */
 
 function getStartingCounts(
   year,
@@ -1131,15 +1203,13 @@ function getStartingCounts(
       appData.baseline,
     );
 
-
-  const targetKey =
+  const target =
     getMonthKey(
       year,
       month,
     );
 
-
-  const keys =
+  const historyKeys =
     Object.keys(
       appData.history,
     ).sort(
@@ -1147,22 +1217,19 @@ function getStartingCounts(
         a.localeCompare(b),
     );
 
-
   for (
-    const key of keys
+    const key of historyKeys
   ) {
     if (
-      key === targetKey
+      key === target
     ) {
       continue;
     }
-
 
     const monthData =
       appData.history[
         key
       ];
-
 
     if (
       !monthData ||
@@ -1171,7 +1238,6 @@ function getStartingCounts(
       continue;
     }
 
-
     counts =
       addWorkerCounts(
         counts,
@@ -1179,316 +1245,22 @@ function getStartingCounts(
       );
   }
 
-
   return counts;
 }
 
 
 /* =========================================================
- * 오래된 기록 정리
- * ========================================================= */
-
-function cleanupOldHistory(
-  referenceYear = null,
-  referenceMonth = null,
-) {
-  const keys =
-    Object.keys(
-      appData.history,
-    ).sort(
-      (a, b) =>
-        a.localeCompare(b),
-    );
-
-
-  if (
-    keys.length === 0
-  ) {
-    return;
-  }
-
-
-  let latestKey;
-
-
-  if (
-    referenceYear &&
-    referenceMonth
-  ) {
-    latestKey =
-      getMonthKey(
-        referenceYear,
-        referenceMonth,
-      );
-  } else {
-    latestKey =
-      keys[keys.length - 1];
-  }
-
-
-  const latest =
-    parseMonthKey(
-      latestKey,
-    );
-
-
-  if (!latest) {
-    return;
-  }
-
-
-  const keep =
-    new Set(
-      getRollingMonthKeys(
-        latest.year,
-        latest.month,
-      ),
-    );
-
-
-  const oldKeys =
-    keys.filter(
-      (key) =>
-        !keep.has(key),
-    );
-
-
-  if (
-    oldKeys.length === 0
-  ) {
-    return;
-  }
-
-
-  for (
-    const key of oldKeys
-  ) {
-    const monthData =
-      appData.history[
-        key
-      ];
-
-
-    if (
-      monthData &&
-      monthData.originalCounts
-    ) {
-      appData.baseline =
-        addWorkerCounts(
-          appData.baseline,
-          monthData.originalCounts,
-        );
-    }
-
-
-    delete appData.history[
-      key
-    ];
-  }
-
-
-  saveLocalData();
-}
-
-
-/* =========================================================
- * 업무 가능 여부
- * ========================================================= */
-
-function isAllowed(
-  worker,
-  job,
-) {
-  if (
-    job === "볼분리" ||
-    job === "볼분리 보조"
-  ) {
-    return MAIN_WORKERS.includes(
-      worker,
-    );
-  }
-
-
-  if (
-    worker === "박"
-  ) {
-    return PARK_ALLOWED_JOBS.includes(
-      job,
-    );
-  }
-
-
-  if (
-    worker === "류"
-  ) {
-    return LIU_JOBS.includes(
-      job,
-    );
-  }
-
-
-  return true;
-}
-
-
-/* =========================================================
- * 순열
- * ========================================================= */
-
-function generatePermutations(
-  items,
-) {
-  if (
-    items.length <= 1
-  ) {
-    return [
-      items.slice(),
-    ];
-  }
-
-
-  const result = [];
-
-
-  for (
-    let i = 0;
-    i < items.length;
-    i += 1
-  ) {
-    const current =
-      items[i];
-
-
-    const remaining = [
-      ...items.slice(
-        0,
-        i,
-      ),
-
-      ...items.slice(
-        i + 1,
-      ),
-    ];
-
-
-    const children =
-      generatePermutations(
-        remaining,
-      );
-
-
-    for (
-      const child of children
-    ) {
-      result.push([
-        current,
-        ...child,
-      ]);
-    }
-  }
-
-
-  return result;
-}
-
-
-/* =========================================================
- * 하루 후보
- * ========================================================= */
-
-function generateDailyCandidates() {
-  const result = [];
-
-
-  const permutations =
-    generatePermutations(
-      WORKERS,
-    );
-
-
-  for (
-    const permutation of
-      permutations
-  ) {
-    const candidate = {};
-
-    let valid = true;
-
-
-    for (
-      let i = 0;
-      i < JOBS.length;
-      i += 1
-    ) {
-      const job =
-        JOBS[i];
-
-      const worker =
-        permutation[i];
-
-
-      if (
-        !isAllowed(
-          worker,
-          job,
-        )
-      ) {
-        valid = false;
-        break;
-      }
-
-
-      candidate[job] =
-        worker;
-    }
-
-
-    if (!valid) {
-      continue;
-    }
-
-
-    const usedWorkers =
-      JOBS.map(
-        (job) =>
-          candidate[job],
-      );
-
-
-    if (
-      new Set(
-        usedWorkers,
-      ).size !==
-      WORKERS.length
-    ) {
-      continue;
-    }
-
-
-    result.push(
-      candidate,
-    );
-  }
-
-
-  return result;
-}
-
-
-/* =========================================================
- * 범위
- * ========================================================= */
+ * 균형 계산
+ * ======================================================= */
 
 function getRange(
   values,
 ) {
   if (
-    !values ||
-    values.length === 0
+    !values.length
   ) {
     return 0;
   }
-
 
   return (
     Math.max(...values) -
@@ -1496,10 +1268,6 @@ function getRange(
   );
 }
 
-
-/* =========================================================
- * 균형 값
- * ========================================================= */
 
 function getBowlCounts(
   counts,
@@ -1552,14 +1320,12 @@ function getMainExtraCounts(
     (worker) => {
       let total = 0;
 
-
       for (
         const job of LIU_JOBS
       ) {
         total +=
           counts[worker][job];
       }
-
 
       return total;
     },
@@ -1569,80 +1335,7 @@ function getMainExtraCounts(
 
 /* =========================================================
  * 연속 업무
- * ========================================================= */
-
-function getJobForWorker(
-  day,
-  worker,
-) {
-  for (
-    const job of JOBS
-  ) {
-    if (
-      day[job] === worker
-    ) {
-      return job;
-    }
-  }
-
-
-  return null;
-}
-
-
-function calculateConsecutivePenalty(
-  schedule,
-) {
-  if (
-    schedule.length < 2
-  ) {
-    return 0;
-  }
-
-
-  const previous =
-    schedule[
-      schedule.length - 2
-    ];
-
-  const current =
-    schedule[
-      schedule.length - 1
-    ];
-
-
-  let penalty = 0;
-
-
-  for (
-    const worker of WORKERS
-  ) {
-    const previousJob =
-      getJobForWorker(
-        previous,
-        worker,
-      );
-
-    const currentJob =
-      getJobForWorker(
-        current,
-        worker,
-      );
-
-
-    if (
-      previousJob &&
-      previousJob ===
-        currentJob
-    ) {
-      penalty += 1;
-    }
-  }
-
-
-  return penalty;
-}
-
+ * ======================================================= */
 
 function calculateFullConsecutivePenalty(
   schedule,
@@ -1653,21 +1346,19 @@ function calculateFullConsecutivePenalty(
     return 0;
   }
 
-
   let penalty = 0;
 
-
   for (
-    let i = 1;
-    i < schedule.length;
-    i += 1
+    let index = 1;
+    index <
+      schedule.length;
+    index += 1
   ) {
     const previous =
-      schedule[i - 1];
+      schedule[index - 1];
 
     const current =
-      schedule[i];
-
+      schedule[index];
 
     for (
       const worker of WORKERS
@@ -1684,7 +1375,6 @@ function calculateFullConsecutivePenalty(
           worker,
         );
 
-
       if (
         previousJob &&
         previousJob ===
@@ -1695,82 +1385,13 @@ function calculateFullConsecutivePenalty(
     }
   }
 
-
   return penalty;
 }
 
 
 /* =========================================================
- * 부분 점수
- * ========================================================= */
-
-function calculatePartialScore(
-  state,
-) {
-  const counts =
-    state.counts;
-
-
-  const bowlRange =
-    getRange(
-      getBowlCounts(
-        counts,
-      ),
-    );
-
-
-  const helperRange =
-    getRange(
-      getBowlHelperCounts(
-        counts,
-      ),
-    );
-
-
-  const liuRange =
-    getRange(
-      getLiuCounts(
-        counts,
-      ),
-    );
-
-
-  const parkRange =
-    getRange(
-      getParkCounts(
-        counts,
-      ),
-    );
-
-
-  const mainExtraRange =
-    getRange(
-      getMainExtraCounts(
-        counts,
-      ),
-    );
-
-
-  const consecutive =
-    calculateConsecutivePenalty(
-      state.schedule,
-    );
-
-
-  return (
-    bowlRange * 1000000 +
-    helperRange * 100000 +
-    liuRange * 10000 +
-    mainExtraRange * 1000 +
-    parkRange * 500 +
-    consecutive * 10
-  );
-}
-
-
-/* =========================================================
  * 최종 점수
- * ========================================================= */
+ * ======================================================= */
 
 function calculateFinalScore(
   state,
@@ -1778,7 +1399,6 @@ function calculateFinalScore(
   const counts =
     state.counts;
 
-
   const bowlRange =
     getRange(
       getBowlCounts(
@@ -1786,14 +1406,12 @@ function calculateFinalScore(
       ),
     );
 
-
   const helperRange =
     getRange(
       getBowlHelperCounts(
         counts,
       ),
     );
-
 
   const liuCounts =
     getLiuCounts(
@@ -1805,7 +1423,6 @@ function calculateFinalScore(
       liuCounts,
     );
 
-
   const parkCounts =
     getParkCounts(
       counts,
@@ -1816,7 +1433,6 @@ function calculateFinalScore(
       parkCounts,
     );
 
-
   const mainExtraRange =
     getRange(
       getMainExtraCounts(
@@ -1824,24 +1440,19 @@ function calculateFinalScore(
       ),
     );
 
-
   let mainJobSpread = 0;
-
 
   for (
     const job of JOBS
   ) {
-    const values =
-      MAIN_WORKERS.map(
-        (worker) =>
-          counts[worker][job],
-      );
-
-
     mainJobSpread +=
-      getRange(values);
+      getRange(
+        MAIN_WORKERS.map(
+          (worker) =>
+            counts[worker][job],
+        ),
+      );
   }
-
 
   const liuAverage =
     liuCounts.reduce(
@@ -1850,7 +1461,6 @@ function calculateFinalScore(
       0,
     ) /
     liuCounts.length;
-
 
   const liuVariance =
     liuCounts.reduce(
@@ -1864,7 +1474,6 @@ function calculateFinalScore(
       0,
     );
 
-
   const parkAverage =
     parkCounts.reduce(
       (sum, value) =>
@@ -1872,7 +1481,6 @@ function calculateFinalScore(
       0,
     ) /
     parkCounts.length;
-
 
   const parkVariance =
     parkCounts.reduce(
@@ -1886,12 +1494,10 @@ function calculateFinalScore(
       0,
     );
 
-
   const consecutive =
     calculateFullConsecutivePenalty(
       state.schedule,
     );
-
 
   return (
     bowlRange * 1000000000 +
@@ -1908,8 +1514,56 @@ function calculateFinalScore(
 
 
 /* =========================================================
+ * 부분 점수
+ * ======================================================= */
+
+function calculatePartialScore(
+  state,
+) {
+  const counts =
+    state.counts;
+
+  return (
+    getRange(
+      getBowlCounts(
+        counts,
+      ),
+    ) * 1000000 +
+
+    getRange(
+      getBowlHelperCounts(
+        counts,
+      ),
+    ) * 100000 +
+
+    getRange(
+      getLiuCounts(
+        counts,
+      ),
+    ) * 10000 +
+
+    getRange(
+      getMainExtraCounts(
+        counts,
+      ),
+    ) * 1000 +
+
+    getRange(
+      getParkCounts(
+        counts,
+      ),
+    ) * 500 +
+
+    calculateFullConsecutivePenalty(
+      state.schedule,
+    ) * 10
+  );
+}
+
+
+/* =========================================================
  * 상태 서명
- * ========================================================= */
+ * ======================================================= */
 
 function createStateSignature(
   state,
@@ -1917,39 +1571,32 @@ function createStateSignature(
   const counts =
     state.counts;
 
-
   const bowl =
     getBowlCounts(
       counts,
     ).join(",");
-
 
   const helper =
     getBowlHelperCounts(
       counts,
     ).join(",");
 
-
   const liu =
     getLiuCounts(
       counts,
     ).join(",");
-
 
   const park =
     getParkCounts(
       counts,
     ).join(",");
 
-
   const main =
     getMainExtraCounts(
       counts,
     ).join(",");
 
-
   let last = "";
-
 
   if (
     state.lastAssignment
@@ -1962,7 +1609,6 @@ function createStateSignature(
           ],
       ).join(",");
   }
-
 
   return [
     bowl,
@@ -1977,14 +1623,13 @@ function createStateSignature(
 
 /* =========================================================
  * 가지치기
- * ========================================================= */
+ * ======================================================= */
 
 function pruneStates(
   states,
 ) {
   const grouped =
     new Map();
-
 
   for (
     const state of states
@@ -1994,31 +1639,26 @@ function pruneStates(
         state,
       );
 
-
     const score =
       calculatePartialScore(
         state,
       );
-
 
     const group =
       grouped.get(
         signature,
       ) || [];
 
-
     group.push({
       state,
       score,
     });
-
 
     group.sort(
       (a, b) =>
         a.score -
         b.score,
     );
-
 
     if (
       group.length >
@@ -2028,16 +1668,13 @@ function pruneStates(
         MAX_STATES_PER_SIGNATURE;
     }
 
-
     grouped.set(
       signature,
       group,
     );
   }
 
-
   const flattened = [];
-
 
   for (
     const group of grouped.values()
@@ -2047,13 +1684,11 @@ function pruneStates(
     );
   }
 
-
   flattened.sort(
     (a, b) =>
       a.score -
       b.score,
   );
-
 
   return flattened
     .slice(
@@ -2064,40 +1699,6 @@ function pruneStates(
       (item) =>
         item.state,
     );
-}
-
-
-/* =========================================================
- * 상태 추가
- * ======================================================= */
-
-function addCandidateToState(
-  state,
-  candidate,
-  dateInfo,
-) {
-  const counts =
-    addAssignmentToCounts(
-      state.counts,
-      candidate,
-    );
-
-
-  return {
-    schedule: [
-      ...state.schedule,
-
-      {
-        ...dateInfo,
-        ...candidate,
-      },
-    ],
-
-    counts,
-
-    lastAssignment:
-      candidate,
-  };
 }
 
 
@@ -2115,7 +1716,6 @@ function optimizeMonth(
   const dailyCandidates =
     generateDailyCandidates();
 
-
   if (
     dailyCandidates.length === 0
   ) {
@@ -2124,9 +1724,7 @@ function optimizeMonth(
     );
   }
 
-
   const dates = [];
-
 
   for (
     let day = startDay;
@@ -2142,7 +1740,6 @@ function optimizeMonth(
     );
   }
 
-
   let states = [
     {
       schedule: [],
@@ -2157,36 +1754,43 @@ function optimizeMonth(
     },
   ];
 
-
   for (
     let index = 0;
     index < dates.length;
     index += 1
   ) {
-    const dateInfo =
-      dates[index];
-
-
     const nextStates = [];
-
 
     for (
       const state of states
     ) {
       for (
-        const candidate of
-          dailyCandidates
+        const candidate
+          of dailyCandidates
       ) {
         nextStates.push(
-          addCandidateToState(
-            state,
-            candidate,
-            dateInfo,
-          ),
+          {
+            schedule: [
+              ...state.schedule,
+
+              {
+                ...dates[index],
+                ...candidate,
+              },
+            ],
+
+            counts:
+              addAssignmentToCounts(
+                state.counts,
+                candidate,
+              ),
+
+            lastAssignment:
+              candidate,
+          },
         );
       }
     }
-
 
     states =
       pruneStates(
@@ -2194,57 +1798,19 @@ function optimizeMonth(
       );
   }
 
-
   states.sort(
     (a, b) =>
       calculateFinalScore(a) -
       calculateFinalScore(b),
   );
 
-
   return states[0].schedule;
 }
 
 
 /* =========================================================
- * 원래 배정 횟수
- * ========================================================= */
-
-function calculateOriginalCounts(
-  schedule,
-) {
-  const counts =
-    createEmptyWorkerCounts();
-
-
-  for (
-    const day of schedule
-  ) {
-    for (
-      const job of JOBS
-    ) {
-      const worker =
-        day[job];
-
-
-      if (!worker) {
-        continue;
-      }
-
-
-      counts[worker][job] +=
-        1;
-    }
-  }
-
-
-  return counts;
-}
-
-
-/* =========================================================
  * 연차
- * ========================================================= */
+ * ======================================================= */
 
 function getLeaveWorkers(
   dateKey,
@@ -2271,7 +1837,6 @@ function setLeaveWorkers(
         ),
     );
 
-
   if (
     normalized.length === 0
   ) {
@@ -2281,13 +1846,13 @@ function setLeaveWorkers(
   } else {
     appData.leave[
       dateKey
-    ] = normalized;
+    ] =
+      normalized;
   }
 
-
   saveLocalData();
-
   renderLeaveList();
+  renderCalendar();
 }
 
 
@@ -2301,9 +1866,7 @@ function getLeaveMapForMonth(
       month,
     );
 
-
   const result = {};
-
 
   for (
     const [
@@ -2323,345 +1886,78 @@ function getLeaveMapForMonth(
     }
   }
 
-
   return result;
 }
 
-
-/* =========================================================
- * 연차를 실제 화면 배정에 반영
- *
- * 원래 배정은 누적 횟수에 반영.
- * 실제 화면에서는 연차자를 제외하고
- * 비는 업무를 대체자에게 맡긴다.
- * ========================================================= */
 
 function applyLeavesToSchedule(
   originalSchedule,
 ) {
-  const result = [];
-
-
-  for (
-    const originalDay
-      of originalSchedule
-  ) {
-    const dateKey =
-      formatDateKey(
-        originalDay.year,
-        originalDay.month,
-        originalDay.day,
-      );
-
-
-    const leaveWorkers =
-      getLeaveWorkers(
-        dateKey,
-      );
-
-
-    if (
-      leaveWorkers.length === 0
-    ) {
-      result.push({
-        ...originalDay,
-
-        leaveWorkers: [],
-
-        replacements: {},
-      });
-
-      continue;
-    }
-
-
-    const day = {
-      ...originalDay,
-
-      leaveWorkers:
-        leaveWorkers.slice(),
-
-      replacements: {},
-    };
-
-
-    const vacantJobs = [];
-
-
-    for (
-      const job of JOBS
-    ) {
-      const worker =
-        originalDay[job];
-
-
-      if (
-        leaveWorkers.includes(
-          worker,
-        )
-      ) {
-        delete day[job];
-
-
-        vacantJobs.push({
-          job,
-
-          originalWorker:
-            worker,
-        });
-      }
-    }
-
-
-    const availableWorkers =
-      WORKERS.filter(
-        (worker) =>
-          !leaveWorkers.includes(
-            worker,
-          ),
-      );
-
-
-    /*
-     * 대체 업무 우선순위
-     *
-     * 1. 해당 업무가 가능한 사람
-     * 2. 당일 아직 업무가 없는 사람
-     * 3. 누적 횟수가 적은 사람
-     */
-    for (
-      const vacant of vacantJobs
-    ) {
-      const replacement =
-        chooseReplacementWorker(
-          availableWorkers,
-          vacant.job,
-          day,
+  return originalSchedule.map(
+    (originalDay) => {
+      const dateKey =
+        formatDateKey(
+          originalDay.year,
+          originalDay.month,
+          originalDay.day,
         );
 
+      const leaveWorkers =
+        getLeaveWorkers(
+          dateKey,
+        );
 
-      if (!replacement) {
-        day.replacements[
-          vacant.job
-        ] = null;
-
-        continue;
-      }
-
-
-      day[vacant.job] =
-        replacement;
-
-
-      day.replacements[
-        vacant.job
-      ] = {
-        originalWorker:
-          vacant.originalWorker,
-
-        replacementWorker:
-          replacement,
+      return {
+        ...originalDay,
+        leaveWorkers,
+        replacements: {},
       };
-    }
-
-
-    result.push(
-      day,
-    );
-  }
-
-
-  return result;
-}
-
-
-function chooseReplacementWorker(
-  availableWorkers,
-  job,
-  day,
-) {
-  const eligible =
-    availableWorkers.filter(
-      (worker) =>
-        isAllowed(
-          worker,
-          job,
-        ),
-    );
-
-
-  if (
-    eligible.length === 0
-  ) {
-    return null;
-  }
-
-
-  const freeWorkers =
-    eligible.filter(
-      (worker) =>
-        !isWorkerAssignedOnDay(
-          day,
-          worker,
-        ),
-    );
-
-
-  const pool =
-    freeWorkers.length >
-    0
-      ? freeWorkers
-      : eligible;
-
-
-  const startingCounts =
-    getStartingCounts(
-      Number(
-        document.getElementById(
-          "yearInput",
-        ).value,
-      ),
-      Number(
-        document.getElementById(
-          "monthInput",
-        ).value,
-      ),
-    );
-
-
-  let bestWorker = null;
-
-  let bestScore =
-    Infinity;
-
-
-  for (
-    const worker of pool
-  ) {
-    const count =
-      startingCounts[worker][job] +
-      getCurrentOriginalJobCount(
-        worker,
-        job,
-      );
-
-
-    const alreadyAssigned =
-      isWorkerAssignedOnDay(
-        day,
-        worker,
-      );
-
-
-    const score =
-      count * 100 +
-      (
-        alreadyAssigned
-          ? 50
-          : 0
-      );
-
-
-    if (
-      score <
-      bestScore
-    ) {
-      bestScore =
-        score;
-
-      bestWorker =
-        worker;
-    }
-  }
-
-
-  return bestWorker;
-}
-
-
-function getCurrentOriginalJobCount(
-  worker,
-  job,
-) {
-  if (
-    !currentOriginalCounts
-  ) {
-    return 0;
-  }
-
-
-  return (
-    currentOriginalCounts[
-      worker
-    ]?.[job] ?? 0
+    },
   );
-}
-
-
-function isWorkerAssignedOnDay(
-  day,
-  worker,
-) {
-  for (
-    const job of JOBS
-  ) {
-    if (
-      day[job] === worker
-    ) {
-      return true;
-    }
-  }
-
-
-  return false;
 }
 
 
 /* =========================================================
  * 검증
- * ========================================================= */
+ * ======================================================= */
 
 function validateOriginalSchedule(
   schedule,
 ) {
   const errors = [];
 
-
   for (
     const day of schedule
   ) {
-    const workers =
+    const assignedWorkers =
       JOBS.map(
         (job) =>
           day[job],
       );
 
-
     if (
-      workers.some(
+      assignedWorkers.some(
         (worker) =>
           !worker,
       )
     ) {
       errors.push(
-        `${day.month}월 ${day.day}일: 미배정 업무가 있습니다.`,
+        `${day.month}월 ${day.day}일: 미배정 업무`,
       );
 
       continue;
     }
 
-
     if (
       new Set(
-        workers,
+        assignedWorkers,
       ).size !==
       WORKERS.length
     ) {
       errors.push(
-        `${day.month}월 ${day.day}일: 작업자가 중복되었습니다.`,
+        `${day.month}월 ${day.day}일: 작업자 중복`,
       );
     }
-
 
     for (
       const job of JOBS
@@ -2679,14 +1975,35 @@ function validateOriginalSchedule(
     }
   }
 
-
   return errors;
 }
 
 
 /* =========================================================
+ * 작업자 업무 찾기
+ * ======================================================= */
+
+function getJobForWorker(
+  day,
+  worker,
+) {
+  for (
+    const job of JOBS
+  ) {
+    if (
+      day[job] === worker
+    ) {
+      return job;
+    }
+  }
+
+  return null;
+}
+
+
+/* =========================================================
  * 텍스트
- * ========================================================= */
+ * ======================================================= */
 
 function formatScheduleAsText(
   schedule,
@@ -2698,21 +2015,16 @@ function formatScheduleAsText(
     return "";
   }
 
-
   const first =
     schedule[0];
 
-
   const lines = [];
-
 
   lines.push(
     `${first.year}년 ${first.month}월 업무 배정표`,
   );
 
-
   lines.push("");
-
 
   for (
     const day of schedule
@@ -2721,23 +2033,8 @@ function formatScheduleAsText(
       `### ${day.month}월 ${day.day}일`,
     );
 
-
     const leaveWorkers =
-      day.leaveWorkers ||
-      [];
-
-
-    const originalDay =
-      currentOriginalSchedule.find(
-        (item) =>
-          item.year ===
-            day.year &&
-          item.month ===
-            day.month &&
-          item.day ===
-            day.day,
-      );
-
+      day.leaveWorkers || [];
 
     for (
       const worker of WORKERS
@@ -2748,13 +2045,10 @@ function formatScheduleAsText(
         )
       ) {
         const originalJob =
-          originalDay
-            ? getJobForWorker(
-                originalDay,
-                worker,
-              )
-            : null;
-
+          getJobForWorker(
+            day,
+            worker,
+          );
 
         lines.push(
           `${worker} → 연차${
@@ -2767,434 +2061,568 @@ function formatScheduleAsText(
         continue;
       }
 
-
       const job =
         getJobForWorker(
           day,
           worker,
         );
 
-
-      if (!job) {
-        lines.push(
-          `${worker} → 미배정`,
-        );
-
-        continue;
-      }
-
-
-      const replacement =
-        Object.values(
-          day.replacements ||
-            {},
-        ).find(
-          (item) =>
-            item &&
-            item.replacementWorker ===
-              worker,
-        );
-
-
-      if (
-        replacement
-      ) {
-        lines.push(
-          `${worker} → ${job} (연차 대체)`,
-        );
-      } else {
-        lines.push(
-          `${worker} → ${job}`,
-        );
-      }
-    }
-
-
-    const replacementEntries =
-      Object.entries(
-        day.replacements ||
-          {},
-      );
-
-
-    if (
-      replacementEntries.length >
-      0
-    ) {
-      lines.push("");
-
       lines.push(
-        "[연차 대체]",
+        `${worker} → ${
+          job || "미배정"
+        }`,
       );
-
-
-      for (
-        const [
-          job,
-          replacement,
-        ] of replacementEntries
-      ) {
-        if (!replacement) {
-          lines.push(
-            `${job}: 대체자 없음`,
-          );
-
-          continue;
-        }
-
-
-        lines.push(
-          `${job}: ${replacement.originalWorker} 연차 → ${replacement.replacementWorker}`,
-        );
-      }
     }
-
 
     lines.push("");
   }
-
 
   return lines.join("\n");
 }
 
 
 /* =========================================================
- * 업무별 요약
- * ========================================================= */
+ * 달력
+ * ======================================================= */
 
-function renderJobSummary() {
+function renderCalendar() {
   const container =
     document.getElementById(
-      "summaryContainer",
+      "calendarContainer",
     );
 
+  const title =
+    document.getElementById(
+      "calendarTitle",
+    );
 
-  if (!container) {
+  if (
+    !container ||
+    !title
+  ) {
     return;
   }
 
+  title.textContent =
+    `${calendarYear}년 ${calendarMonth}월`;
 
-  const counts =
-    createEmptyJobCounts();
+  if (
+    currentOriginalSchedule.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="empty-state">
+        ${calendarYear}년 ${calendarMonth}월 배정표를 생성하면 달력에 표시됩니다.
+      </div>
+    `;
 
+    return;
+  }
+
+  const scheduleMap =
+    new Map();
+
+  for (
+    const day of currentSchedule
+  ) {
+    const key =
+      formatDateKey(
+        day.year,
+        day.month,
+        day.day,
+      );
+
+    scheduleMap.set(
+      key,
+      day,
+    );
+  }
+
+  const originalMap =
+    new Map();
 
   for (
     const day of currentOriginalSchedule
   ) {
-    for (
-      const job of JOBS
-    ) {
-      if (day[job]) {
-        counts[job] +=
-          1;
-      }
-    }
-  }
-
-
-  container.innerHTML = "";
-
-
-  for (
-    const job of JOBS
-  ) {
-    const card =
-      document.createElement(
-        "div",
+    const key =
+      formatDateKey(
+        day.year,
+        day.month,
+        day.day,
       );
 
-
-    card.className =
-      "summary-card";
-
-
-    const label =
-      document.createElement(
-        "span",
-      );
-
-
-    label.className =
-      "label";
-
-
-    label.textContent =
-      job;
-
-
-    const value =
-      document.createElement(
-        "span",
-      );
-
-
-    value.className =
-      "value";
-
-
-    value.textContent =
-      `${counts[job]}회`;
-
-
-    card.appendChild(
-      label,
-    );
-
-
-    card.appendChild(
-      value,
-    );
-
-
-    container.appendChild(
-      card,
+    originalMap.set(
+      key,
+      day,
     );
   }
-}
 
-
-/* =========================================================
- * 빈 업무 카운트
- * ========================================================= */
-
-function createEmptyJobCounts() {
-  const result = {};
-
-  for (
-    const job of JOBS
-  ) {
-    result[job] = 0;
-  }
-
-  return result;
-}
-
-
-/* =========================================================
- * 작업자별 요약
- * ========================================================= */
-
-function renderWorkerSummary() {
-  const container =
-    document.getElementById(
-      "workerSummaryContainer",
+  const firstDate =
+    new Date(
+      calendarYear,
+      calendarMonth - 1,
+      1,
     );
 
+  const firstWeekday =
+    firstDate.getDay();
 
-  if (!container) {
-    return;
-  }
-
-
-  const counts =
-    calculateOriginalCounts(
-      currentOriginalSchedule,
+  const daysInMonth =
+    getDaysInMonth(
+      calendarYear,
+      calendarMonth,
     );
 
-
-  const wrapper =
+  const calendar =
     document.createElement(
       "div",
     );
 
+  calendar.className =
+    "calendar";
 
-  wrapper.className =
-    "worker-table-wrap";
-
-
-  const table =
-    document.createElement(
-      "table",
-    );
-
-
-  table.className =
-    "worker-table";
-
-
-  const thead =
-    document.createElement(
-      "thead",
-    );
-
-
-  const headerRow =
-    document.createElement(
-      "tr",
-    );
-
-
-  const headers = [
-    "작업자",
-    "볼분리",
-    "볼분리 보조",
-    "설거지",
-    "분쇄",
-    "성형",
-    "총합",
+  const weekdays = [
+    "일",
+    "월",
+    "화",
+    "수",
+    "목",
+    "금",
+    "토",
   ];
 
-
   for (
-    const header of headers
+    let i = 0;
+    i < weekdays.length;
+    i += 1
   ) {
-    const th =
+    const header =
       document.createElement(
-        "th",
+        "div",
       );
 
+    header.className =
+      "calendar-weekday";
 
-    th.textContent =
-      header;
+    if (i === 0) {
+      header.classList.add(
+        "sunday",
+      );
+    }
 
+    if (i === 6) {
+      header.classList.add(
+        "saturday",
+      );
+    }
 
-    headerRow.appendChild(
-      th,
+    header.textContent =
+      weekdays[i];
+
+    calendar.appendChild(
+      header,
     );
   }
 
-
-  thead.appendChild(
-    headerRow,
-  );
-
-
-  const tbody =
-    document.createElement(
-      "tbody",
-    );
-
-
   for (
-    const worker of WORKERS
+    let i = 0;
+    i < firstWeekday;
+    i += 1
   ) {
-    const row =
+    const empty =
       document.createElement(
-        "tr",
+        "div",
       );
 
+    empty.className =
+      "calendar-day empty";
 
-    let total = 0;
+    calendar.appendChild(
+      empty,
+    );
+  }
 
+  const today =
+    new Date();
 
-    const values = [
-      worker,
+  for (
+    let dayNumber = 1;
+    dayNumber <= daysInMonth;
+    dayNumber += 1
+  ) {
+    const key =
+      formatDateKey(
+        calendarYear,
+        calendarMonth,
+        dayNumber,
+      );
 
-      counts[worker][
-        "볼분리"
-      ],
+    const actualDay =
+      scheduleMap.get(
+        key,
+      );
 
-      counts[worker][
-        "볼분리 보조"
-      ],
+    const originalDay =
+      originalMap.get(
+        key,
+      );
 
-      counts[worker][
-        "설거지 및 성형보조"
-      ],
+    const cell =
+      document.createElement(
+        "div",
+      );
 
-      counts[worker][
-        "분쇄 및 성형보조"
-      ],
+    cell.className =
+      "calendar-day";
 
-      counts[worker][
-        "성형 및 분쇄보조"
-      ],
-    ];
+    const weekday =
+      new Date(
+        calendarYear,
+        calendarMonth - 1,
+        dayNumber,
+      ).getDay();
 
-
-    for (
-      let i = 1;
-      i < values.length;
-      i += 1
+    if (
+      weekday === 0 ||
+      weekday === 6
     ) {
-      total +=
-        values[i];
+      cell.classList.add(
+        "weekend",
+      );
     }
 
+    if (
+      today.getFullYear() ===
+        calendarYear &&
+      today.getMonth() + 1 ===
+        calendarMonth &&
+      today.getDate() ===
+        dayNumber
+    ) {
+      cell.classList.add(
+        "today",
+      );
+    }
 
-    values.push(
-      total,
+    const leaveWorkers =
+      actualDay?.leaveWorkers ||
+      getLeaveWorkers(
+        key,
+      );
+
+    if (
+      leaveWorkers.length > 0
+    ) {
+      cell.classList.add(
+        "leave",
+      );
+    }
+
+    const dateHeader =
+      document.createElement(
+        "div",
+      );
+
+    dateHeader.className =
+      "calendar-date";
+
+    const dateNumber =
+      document.createElement(
+        "span",
+      );
+
+    dateNumber.className =
+      "calendar-date-number";
+
+    dateNumber.textContent =
+      String(
+        dayNumber,
+      );
+
+    dateHeader.appendChild(
+      dateNumber,
     );
 
-
-    for (
-      let i = 0;
-      i < values.length;
-      i += 1
+    if (
+      leaveWorkers.length >
+      0
     ) {
-      const td =
+      const leaveLabel =
         document.createElement(
-          "td",
+          "span",
         );
 
+      leaveLabel.className =
+        "calendar-leave-label";
 
-      if (
-        i ===
-        values.length - 1
-      ) {
-        const strong =
-          document.createElement(
-            "strong",
-          );
+      leaveLabel.textContent =
+        "연차";
 
-
-        strong.textContent =
-          String(
-            values[i],
-          );
-
-
-        td.appendChild(
-          strong,
-        );
-      } else {
-        td.textContent =
-          String(
-            values[i],
-          );
-      }
-
-
-      row.appendChild(
-        td,
+      dateHeader.appendChild(
+        leaveLabel,
       );
     }
 
+    cell.appendChild(
+      dateHeader,
+    );
 
-    tbody.appendChild(
-      row,
+    const assignment =
+      document.createElement(
+        "div",
+      );
+
+    assignment.className =
+      "calendar-assignment";
+
+    /*
+     * 생성된 기간 안에 해당 날짜가 있는 경우만
+     * 작업자를 표시한다.
+     */
+    const source =
+      actualDay ||
+      originalDay;
+
+    if (source) {
+      for (
+        const worker of WORKERS
+      ) {
+        const row =
+          document.createElement(
+            "div",
+          );
+
+        row.className =
+          "calendar-worker";
+
+        const workerName =
+          document.createElement(
+            "span",
+          );
+
+        workerName.className =
+          "calendar-worker-name";
+
+        workerName.textContent =
+          worker;
+
+        const workerJob =
+          document.createElement(
+            "span",
+          );
+
+        workerJob.className =
+          "calendar-worker-job";
+
+        if (
+          leaveWorkers.includes(
+            worker,
+          )
+        ) {
+          workerJob.textContent =
+            "연차";
+
+          workerJob.classList.add(
+            "leave",
+          );
+        } else {
+          const job =
+            getJobForWorker(
+              source,
+              worker,
+            );
+
+          workerJob.textContent =
+            job || "미배정";
+        }
+
+        row.appendChild(
+          workerName,
+        );
+
+        row.appendChild(
+          workerJob,
+        );
+
+        assignment.appendChild(
+          row,
+        );
+      }
+    } else {
+      const message =
+        document.createElement(
+          "div",
+        );
+
+      message.className =
+        "calendar-worker-job";
+
+      message.textContent =
+        "미생성";
+
+      assignment.appendChild(
+        message,
+      );
+    }
+
+    cell.appendChild(
+      assignment,
+    );
+
+    /*
+     * 날짜 클릭 → 연차 날짜 입력
+     */
+    cell.addEventListener(
+      "click",
+      () => {
+        const leaveInput =
+          document.getElementById(
+            "leaveDateInput",
+          );
+
+        if (leaveInput) {
+          leaveInput.value =
+            key;
+
+          loadLeaveCheckboxes(
+            key,
+          );
+
+          leaveInput.scrollIntoView({
+            behavior:
+              "smooth",
+
+            block:
+              "center",
+          });
+        }
+      },
+    );
+
+    calendar.appendChild(
+      cell,
     );
   }
 
+  /*
+   * 마지막 줄 채우기
+   */
+  const totalCells =
+    firstWeekday +
+    daysInMonth;
 
-  table.appendChild(
-    thead,
-  );
+  const remainder =
+    totalCells %
+    7;
 
+  if (
+    remainder !== 0
+  ) {
+    for (
+      let i = remainder;
+      i < 7;
+      i += 1
+    ) {
+      const empty =
+        document.createElement(
+          "div",
+        );
 
-  table.appendChild(
-    tbody,
-  );
+      empty.className =
+        "calendar-day empty";
 
-
-  wrapper.appendChild(
-    table,
-  );
-
+      calendar.appendChild(
+        empty,
+      );
+    }
+  }
 
   container.innerHTML =
     "";
 
-
   container.appendChild(
-    wrapper,
+    calendar,
   );
 }
 
 
+function updateCalendarToGeneratedMonth() {
+  const year =
+    Number(
+      document.getElementById(
+        "yearInput",
+      ).value,
+    );
+
+  const month =
+    Number(
+      document.getElementById(
+        "monthInput",
+      ).value,
+    );
+
+  if (
+    Number.isInteger(
+      year,
+    ) &&
+    Number.isInteger(
+      month,
+    )
+  ) {
+    calendarYear =
+      year;
+
+    calendarMonth =
+      month;
+  }
+}
+
+
+function moveCalendarMonth(
+  offset,
+) {
+  const date =
+    new Date(
+      calendarYear,
+      calendarMonth - 1 + offset,
+      1,
+    );
+
+  calendarYear =
+    date.getFullYear();
+
+  calendarMonth =
+    date.getMonth() + 1;
+
+  renderCalendar();
+}
+
+
 /* =========================================================
- * 연차 목록
- * ========================================================= */
+ * 연차 체크박스
+ * ======================================================= */
+
+function loadLeaveCheckboxes(
+  dateKey,
+) {
+  const workers =
+    getLeaveWorkers(
+      dateKey,
+    );
+
+  document
+    .querySelectorAll(
+      "[data-leave-worker]",
+    )
+    .forEach(
+      (checkbox) => {
+        checkbox.checked =
+          workers.includes(
+            checkbox.value,
+          );
+      },
+    );
+}
+
 
 function renderLeaveList() {
   const container =
@@ -3202,22 +2630,17 @@ function renderLeaveList() {
       "leaveList",
     );
 
-
   if (!container) {
     return;
   }
-
 
   const entries =
     Object.entries(
       appData.leave,
     ).sort(
       (a, b) =>
-        a[0].localeCompare(
-          b[0],
-        ),
+        a[0].localeCompare(b[0]),
     );
-
 
   if (
     entries.length === 0
@@ -3228,14 +2651,11 @@ function renderLeaveList() {
       </div>
     `;
 
-
     return;
   }
 
-
   container.innerHTML =
     "";
-
 
   for (
     const [
@@ -3248,82 +2668,66 @@ function renderLeaveList() {
         "div",
       );
 
-
     item.className =
       "leave-item";
-
 
     const main =
       document.createElement(
         "div",
       );
 
-
     main.className =
       "leave-item-main";
-
 
     const date =
       document.createElement(
         "div",
       );
 
-
     date.className =
       "leave-date";
-
 
     date.textContent =
       formatDisplayDate(
         dateKey,
       );
 
-
     const workerText =
       document.createElement(
         "div",
       );
 
-
     workerText.className =
       "leave-workers";
-
 
     workerText.textContent =
       workers.join(
         " · ",
       );
 
-
     main.appendChild(
       date,
     );
-
 
     main.appendChild(
       workerText,
     );
 
-
-    const deleteButton =
+    const button =
       document.createElement(
         "button",
       );
 
-
-    deleteButton.type =
+    button.type =
       "button";
 
-
-    deleteButton.className =
+    button.className =
       "leave-delete-button";
 
-
-    deleteButton.textContent =
+    button.textContent =
       "삭제";
 
-
-    deleteButton.addEventListener(
+    button.addEventListener(
       "click",
       () => {
         delete appData.leave[
@@ -3333,19 +2737,17 @@ function renderLeaveList() {
         saveLocalData();
 
         renderLeaveList();
+        renderCalendar();
       },
     );
-
 
     item.appendChild(
       main,
     );
 
-
     item.appendChild(
-      deleteButton,
+      button,
     );
-
 
     container.appendChild(
       item,
@@ -3362,7 +2764,6 @@ function formatDisplayDate(
       `${dateKey}T00:00:00`,
     );
 
-
   if (
     Number.isNaN(
       date.getTime(),
@@ -3371,20 +2772,657 @@ function formatDisplayDate(
     return dateKey;
   }
 
-
-  return `${date.getFullYear()}년 ${
-    date.getMonth() + 1
-  }월 ${date.getDate()}일 (${
+  const weekday =
     getWeekdayName(
       date.getDay(),
-    )
-  })`;
+    );
+
+  return (
+    `${date.getFullYear()}년 ` +
+    `${date.getMonth() + 1}월 ` +
+    `${date.getDate()}일 ` +
+    `(${weekday})`
+  );
+}
+
+
+/* =========================================================
+ * 배정 생성
+ * ======================================================= */
+
+function handleGenerate() {
+  let inputs;
+
+  try {
+    inputs =
+      readDateInputs();
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "입력값을 확인해주세요.",
+    );
+
+    return;
+  }
+
+  const status =
+    document.getElementById(
+      "statusText",
+    );
+
+  if (status) {
+    status.textContent =
+      "월 전체 최적화 중...";
+
+    status.classList.remove(
+      "success",
+    );
+  }
+
+  window.setTimeout(
+    () => {
+      try {
+        updateCalendarToGeneratedMonth();
+
+        const {
+          year,
+          month,
+          startDay,
+          endDay,
+        } = inputs;
+
+        cleanupOldHistory(
+          year,
+          month,
+        );
+
+        const startingCounts =
+          getStartingCounts(
+            year,
+            month,
+          );
+
+        const schedule =
+          optimizeMonth(
+            year,
+            month,
+            startDay,
+            endDay,
+            startingCounts,
+          );
+
+        currentOriginalSchedule =
+          schedule;
+
+        currentOriginalCounts =
+          calculateOriginalCounts(
+            schedule,
+          );
+
+        currentSchedule =
+          applyLeavesToSchedule(
+            schedule,
+          );
+
+        const monthKey =
+          getMonthKey(
+            year,
+            month,
+          );
+
+        appData.history[
+          monthKey
+        ] = {
+          schedule:
+            deepClone(
+              schedule,
+            ),
+
+          originalCounts:
+            deepClone(
+              currentOriginalCounts,
+            ),
+
+          leave:
+            getLeaveMapForMonth(
+              year,
+              month,
+            ),
+        };
+
+        cleanupOldHistory(
+          year,
+          month,
+        );
+
+        saveLocalData();
+
+        renderSchedule();
+        renderCalendar();
+      } catch (error) {
+        console.error(
+          error,
+        );
+
+        if (status) {
+          status.textContent =
+            "배정 실패";
+
+          status.classList.remove(
+            "success",
+          );
+        }
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : "배정표 생성 중 오류가 발생했습니다.",
+        );
+      }
+    },
+    20,
+  );
+}
+
+
+/* =========================================================
+ * 입력값
+ * ======================================================= */
+
+function readDateInputs() {
+  const year =
+    Number(
+      document.getElementById(
+        "yearInput",
+      ).value,
+    );
+
+  const month =
+    Number(
+      document.getElementById(
+        "monthInput",
+      ).value,
+    );
+
+  const startDay =
+    Number(
+      document.getElementById(
+        "startDayInput",
+      ).value,
+    );
+
+  const endDay =
+    Number(
+      document.getElementById(
+        "endDayInput",
+      ).value,
+    );
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(startDay) ||
+    !Number.isInteger(endDay)
+  ) {
+    throw new Error(
+      "연도, 월, 시작일, 종료일을 확인해주세요.",
+    );
+  }
+
+  if (
+    month < 1 ||
+    month > 12
+  ) {
+    throw new Error(
+      "월은 1~12 사이여야 합니다.",
+    );
+  }
+
+  const daysInMonth =
+    getDaysInMonth(
+      year,
+      month,
+    );
+
+  if (
+    startDay < 1 ||
+    startDay >
+      daysInMonth
+  ) {
+    throw new Error(
+      "시작일이 올바르지 않습니다.",
+    );
+  }
+
+  if (
+    endDay < 1 ||
+    endDay >
+      daysInMonth
+  ) {
+    throw new Error(
+      "종료일이 올바르지 않습니다.",
+    );
+  }
+
+  if (
+    startDay > endDay
+  ) {
+    throw new Error(
+      "시작일은 종료일보다 클 수 없습니다.",
+    );
+  }
+
+  return {
+    year,
+    month,
+    startDay,
+    endDay,
+  };
+}
+
+
+/* =========================================================
+ * 오래된 기록 정리
+ * ======================================================= */
+
+function cleanupOldHistory(
+  referenceYear,
+  referenceMonth,
+) {
+  const keys =
+    Object.keys(
+      appData.history,
+    ).sort(
+      (a, b) =>
+        a.localeCompare(b),
+    );
+
+  if (
+    keys.length === 0
+  ) {
+    return;
+  }
+
+  const keep =
+    new Set(
+      getRollingMonthKeys(
+        referenceYear,
+        referenceMonth,
+      ),
+    );
+
+  for (
+    const key of keys
+  ) {
+    if (
+      keep.has(key)
+    ) {
+      continue;
+    }
+
+    const monthData =
+      appData.history[
+        key
+      ];
+
+    if (
+      monthData &&
+      monthData.originalCounts
+    ) {
+      appData.baseline =
+        addWorkerCounts(
+          appData.baseline,
+          monthData.originalCounts,
+        );
+    }
+
+    delete appData.history[
+      key
+    ];
+  }
+
+  saveLocalData();
+}
+
+
+/* =========================================================
+ * 결과 렌더링
+ * ======================================================= */
+
+function renderSchedule() {
+  const result =
+    document.getElementById(
+      "resultText",
+    );
+
+  const status =
+    document.getElementById(
+      "statusText",
+    );
+
+  const errors =
+    validateOriginalSchedule(
+      currentOriginalSchedule,
+    );
+
+  copiedText =
+    formatScheduleAsText(
+      currentSchedule,
+    );
+
+  if (result) {
+    result.textContent =
+      copiedText;
+
+    if (
+      errors.length > 0
+    ) {
+      result.textContent +=
+        "\n\n[검증 오류]\n" +
+        errors.join("\n");
+    }
+  }
+
+  if (status) {
+    if (
+      errors.length === 0
+    ) {
+      status.textContent =
+        `${currentOriginalSchedule.length}일 생성 완료 · 월 전체 최적화 · 규칙 검증 통과`;
+
+      status.classList.add(
+        "success",
+      );
+    } else {
+      status.textContent =
+        `검증 오류 ${errors.length}건`;
+
+      status.classList.remove(
+        "success",
+      );
+    }
+  }
+
+  renderJobSummary();
+  renderWorkerSummary();
+  renderCalendar();
+  updateDataStatus();
+}
+
+
+/* =========================================================
+ * 업무별 요약
+ * ======================================================= */
+
+function renderJobSummary() {
+  const container =
+    document.getElementById(
+      "summaryContainer",
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const counts =
+    createEmptyJobCounts();
+
+  for (
+    const day of currentOriginalSchedule
+  ) {
+    for (
+      const job of JOBS
+    ) {
+      if (day[job]) {
+        counts[job] += 1;
+      }
+    }
+  }
+
+  container.innerHTML =
+    "";
+
+  for (
+    const job of JOBS
+  ) {
+    const card =
+      document.createElement(
+        "div",
+      );
+
+    card.className =
+      "summary-card";
+
+    const label =
+      document.createElement(
+        "span",
+      );
+
+    label.className =
+      "label";
+
+    label.textContent =
+      job;
+
+    const value =
+      document.createElement(
+        "span",
+      );
+
+    value.className =
+      "value";
+
+    value.textContent =
+      `${counts[job]}회`;
+
+    card.appendChild(
+      label,
+    );
+
+    card.appendChild(
+      value,
+    );
+
+    container.appendChild(
+      card,
+    );
+  }
+}
+
+
+function createEmptyJobCounts() {
+  const result = {};
+
+  for (
+    const job of JOBS
+  ) {
+    result[job] = 0;
+  }
+
+  return result;
+}
+
+
+/* =========================================================
+ * 작업자별 요약
+ * ======================================================= */
+
+function renderWorkerSummary() {
+  const container =
+    document.getElementById(
+      "workerSummaryContainer",
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const counts =
+    currentOriginalCounts ||
+    createEmptyWorkerCounts();
+
+  const wrapper =
+    document.createElement(
+      "div",
+    );
+
+  wrapper.className =
+    "worker-table-wrap";
+
+  const table =
+    document.createElement(
+      "table",
+    );
+
+  table.className =
+    "worker-table";
+
+  const thead =
+    document.createElement(
+      "thead",
+    );
+
+  const header =
+    document.createElement(
+      "tr",
+    );
+
+  [
+    "작업자",
+    "볼분리",
+    "볼분리 보조",
+    "설거지",
+    "분쇄",
+    "성형",
+    "총합",
+  ].forEach(
+    (text) => {
+      const th =
+        document.createElement(
+          "th",
+        );
+
+      th.textContent =
+        text;
+
+      header.appendChild(
+        th,
+      );
+    },
+  );
+
+  thead.appendChild(
+    header,
+  );
+
+  const tbody =
+    document.createElement(
+      "tbody",
+    );
+
+  for (
+    const worker of WORKERS
+  ) {
+    const row =
+      document.createElement(
+        "tr",
+      );
+
+    const values = [
+      worker,
+      counts[worker][
+        "볼분리"
+      ],
+      counts[worker][
+        "볼분리 보조"
+      ],
+      counts[worker][
+        "설거지 및 성형보조"
+      ],
+      counts[worker][
+        "분쇄 및 성형보조"
+      ],
+      counts[worker][
+        "성형 및 분쇄보조"
+      ],
+    ];
+
+    const total =
+      values
+        .slice(1)
+        .reduce(
+          (sum, value) =>
+            sum + value,
+          0,
+        );
+
+    values.push(
+      total,
+    );
+
+    values.forEach(
+      (value, index) => {
+        const td =
+          document.createElement(
+            "td",
+          );
+
+        if (
+          index ===
+          values.length - 1
+        ) {
+          const strong =
+            document.createElement(
+              "strong",
+            );
+
+          strong.textContent =
+            String(value);
+
+          td.appendChild(
+            strong,
+          );
+        } else {
+          td.textContent =
+            String(value);
+        }
+
+        row.appendChild(
+          td,
+        );
+      },
+    );
+
+    tbody.appendChild(
+      row,
+    );
+  }
+
+  table.appendChild(
+    thead,
+  );
+
+  table.appendChild(
+    tbody,
+  );
+
+  wrapper.appendChild(
+    table,
+  );
+
+  container.innerHTML =
+    "";
+
+  container.appendChild(
+    wrapper,
+  );
 }
 
 
 /* =========================================================
  * 데이터 상태
- * ========================================================= */
+ * ======================================================= */
 
 function updateDataStatus() {
   const element =
@@ -3392,20 +3430,17 @@ function updateDataStatus() {
       "dataStatus",
     );
 
-
   if (!element) {
     return;
   }
-
 
   const historyCount =
     Object.keys(
       appData.history,
     ).length;
 
-
-  let baselineTotal = 0;
-
+  let baselineTotal =
+    0;
 
   for (
     const worker of WORKERS
@@ -3420,7 +3455,6 @@ function updateDataStatus() {
     }
   }
 
-
   if (
     historyCount === 0 &&
     baselineTotal === 0
@@ -3431,15 +3465,58 @@ function updateDataStatus() {
     return;
   }
 
-
   element.textContent =
     `상세 기록 ${historyCount}개월 · 압축 누적 ${baselineTotal}건`;
 }
 
 
 /* =========================================================
- * 현재 월 저장 데이터 만들기
- * ========================================================= */
+ * GitHub 저장 설정
+ * ======================================================= */
+
+function handleSaveGithubConfig() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+    alert(
+      "GitHub 설정을 저장했습니다.",
+    );
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 설정을 확인해주세요.",
+    );
+  }
+}
+
+
+async function handleTestGithub() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+    await loadRepositoryData(
+      true,
+    );
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 설정을 확인해주세요.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * GitHub JSON
+ * ======================================================= */
 
 function getCurrentDataPayload() {
   return {
@@ -3467,70 +3544,50 @@ function getCurrentDataPayload() {
 }
 
 
-/* =========================================================
- * JSON 복사
- * ========================================================= */
-
 async function copyJsonToClipboard() {
-  const payload =
-    getCurrentDataPayload();
-
-
   const json =
     JSON.stringify(
-      payload,
+      getCurrentDataPayload(),
       null,
       2,
     );
-
 
   try {
     await navigator.clipboard.writeText(
       json,
     );
 
-
     return true;
   } catch (error) {
     console.error(
-      "JSON 복사 실패:",
       error,
     );
-
 
     const textarea =
       document.createElement(
         "textarea",
       );
 
-
     textarea.value =
       json;
-
 
     textarea.style.position =
       "fixed";
 
-
     textarea.style.left =
       "-9999px";
-
 
     document.body.appendChild(
       textarea,
     );
 
-
     textarea.focus();
-
     textarea.select();
-
 
     try {
       document.execCommand(
         "copy",
       );
-
 
       textarea.remove();
 
@@ -3541,7 +3598,6 @@ async function copyJsonToClipboard() {
       console.error(
         copyError,
       );
-
 
       textarea.remove();
 
@@ -3555,12 +3611,10 @@ async function handleCopyJson() {
   const copied =
     await copyJsonToClipboard();
 
-
   const status =
     document.getElementById(
       "githubSaveStatus",
     );
-
 
   if (copied) {
     if (status) {
@@ -3572,31 +3626,16 @@ async function handleCopyJson() {
       );
     }
 
-
     alert(
       "JSON이 복사되었습니다.",
     );
   } else {
-    if (status) {
-      status.textContent =
-        "JSON 복사에 실패했습니다.";
-
-      status.classList.remove(
-        "success",
-      );
-    }
-
-
     alert(
       "JSON 복사에 실패했습니다.",
     );
   }
 }
 
-
-/* =========================================================
- * GitHub 저장 준비
- * ========================================================= */
 
 async function handlePrepareGithub() {
   try {
@@ -3605,40 +3644,34 @@ async function handlePrepareGithub() {
 
     saveGithubConfig();
 
-
     const copied =
       await copyJsonToClipboard();
 
-
-    const editUrl =
+    const url =
       getGithubEditUrl();
 
-
-    if (!editUrl) {
+    if (!url) {
       throw new Error(
         "GitHub 편집 URL을 만들 수 없습니다.",
       );
     }
 
-
     window.open(
-      editUrl,
+      url,
       "_blank",
       "noopener,noreferrer",
     );
-
 
     const status =
       document.getElementById(
         "githubSaveStatus",
       );
 
-
     if (status) {
       status.textContent =
         copied
-          ? "JSON을 클립보드에 복사했고 GitHub 편집 화면을 열었습니다.\nGitHub의 history.json 전체 내용을 붙여넣은 뒤 Commit changes를 누르세요."
-          : "GitHub 편집 화면을 열었습니다.\nJSON 복사는 실패했으므로 앱의 'JSON 복사' 버튼으로 다시 복사해주세요.";
+          ? "JSON을 복사하고 GitHub 편집 화면을 열었습니다. history.json 전체 내용을 붙여넣은 뒤 Commit changes를 누르세요."
+          : "GitHub 편집 화면을 열었습니다. JSON 복사에 실패했으므로 JSON 복사 버튼을 눌러주세요.";
 
       status.classList.add(
         "success",
@@ -3654,10 +3687,6 @@ async function handlePrepareGithub() {
 }
 
 
-/* =========================================================
- * GitHub 편집 화면
- * ========================================================= */
-
 function handleOpenGithubEdit() {
   try {
     githubConfig =
@@ -3665,20 +3694,17 @@ function handleOpenGithubEdit() {
 
     saveGithubConfig();
 
-
-    const editUrl =
+    const url =
       getGithubEditUrl();
 
-
-    if (!editUrl) {
+    if (!url) {
       throw new Error(
         "GitHub 편집 URL을 만들 수 없습니다.",
       );
     }
 
-
     window.open(
-      editUrl,
+      url,
       "_blank",
       "noopener,noreferrer",
     );
@@ -3693,21 +3719,16 @@ function handleOpenGithubEdit() {
 
 
 /* =========================================================
- * JSON 파일 백업
- * ========================================================= */
+ * 데이터 백업
+ * ======================================================= */
 
 function handleExport() {
-  const payload =
-    getCurrentDataPayload();
-
-
   const json =
     JSON.stringify(
-      payload,
+      getCurrentDataPayload(),
       null,
       2,
     );
-
 
   const blob =
     new Blob(
@@ -3718,37 +3739,29 @@ function handleExport() {
       },
     );
 
-
   const url =
     URL.createObjectURL(
       blob,
     );
-
 
   const link =
     document.createElement(
       "a",
     );
 
-
   link.href =
     url;
 
-
   link.download =
     `assignment-history-${getFileDateString()}.json`;
-
 
   document.body.appendChild(
     link,
   );
 
-
   link.click();
 
-
   link.remove();
-
 
   URL.revokeObjectURL(
     url,
@@ -3759,7 +3772,6 @@ function handleExport() {
 function getFileDateString() {
   const date =
     new Date();
-
 
   return [
     date.getFullYear(),
@@ -3782,8 +3794,8 @@ function getFileDateString() {
 
 
 /* =========================================================
- * JSON 복원
- * ========================================================= */
+ * 데이터 복원
+ * ======================================================= */
 
 function handleImport(
   event,
@@ -3791,38 +3803,28 @@ function handleImport(
   const file =
     event.target.files?.[0];
 
-
   if (!file) {
     return;
   }
 
-
   const reader =
     new FileReader();
-
 
   reader.onload =
     () => {
       try {
-        const parsed =
-          JSON.parse(
-            reader.result,
-          );
-
-
         appData =
           normalizeData(
-            parsed,
+            JSON.parse(
+              reader.result,
+            ),
           );
-
 
         saveLocalData();
 
-
         renderLeaveList();
-
+        renderCalendar();
         updateDataStatus();
-
 
         alert(
           "데이터를 복원했습니다.",
@@ -3832,7 +3834,6 @@ function handleImport(
           error,
         );
 
-
         alert(
           "올바른 JSON 데이터가 아닙니다.",
         );
@@ -3841,7 +3842,6 @@ function handleImport(
           "";
       }
     };
-
 
   reader.onerror =
     () => {
@@ -3853,7 +3853,6 @@ function handleImport(
         "";
     };
 
-
   reader.readAsText(
     file,
     "utf-8",
@@ -3863,69 +3862,55 @@ function handleImport(
 
 /* =========================================================
  * 전체 데이터 삭제
- * ========================================================= */
+ * ======================================================= */
 
 function handleClearData() {
-  const confirmed =
+  const first =
     window.confirm(
       "모든 배정 기록, 누적 데이터, 연차 데이터를 삭제할까요?",
     );
 
-
-  if (!confirmed) {
+  if (!first) {
     return;
   }
-
 
   const second =
     window.confirm(
       "정말 전체 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
     );
 
-
   if (!second) {
     return;
   }
 
-
   appData =
     createEmptyData();
 
-
   currentSchedule = [];
-
   currentOriginalSchedule = [];
-
   currentOriginalCounts = null;
-
   copiedText = "";
-
 
   saveLocalData();
 
-
   renderLeaveList();
-
   renderEmptySummaries();
-
+  renderCalendar();
 
   const result =
     document.getElementById(
       "resultText",
     );
 
-
   if (result) {
     result.textContent =
       "";
   }
 
-
   const status =
     document.getElementById(
       "statusText",
     );
-
 
   if (status) {
     status.textContent =
@@ -3936,21 +3921,15 @@ function handleClearData() {
     );
   }
 
-
   updateDataStatus();
 }
 
-
-/* =========================================================
- * 빈 요약
- * ========================================================= */
 
 function renderEmptySummaries() {
   const summary =
     document.getElementById(
       "summaryContainer",
     );
-
 
   if (summary) {
     summary.innerHTML = `
@@ -3960,12 +3939,10 @@ function renderEmptySummaries() {
     `;
   }
 
-
   const workers =
     document.getElementById(
       "workerSummaryContainer",
     );
-
 
   if (workers) {
     workers.innerHTML = `
@@ -3978,661 +3955,14 @@ function renderEmptySummaries() {
 
 
 /* =========================================================
- * 자동 배정
- * ========================================================= */
-
-function handleGenerate() {
-  let inputs;
-
-
-  try {
-    inputs =
-      readDateInputs();
-  } catch (error) {
-    alert(
-      error instanceof Error
-        ? error.message
-        : "입력값을 확인해주세요.",
-    );
-
-    return;
-  }
-
-
-  const status =
-    document.getElementById(
-      "statusText",
-    );
-
-
-  if (status) {
-    status.textContent =
-      "월 전체 최적화 중...";
-
-    status.classList.remove(
-      "success",
-    );
-  }
-
-
-  window.setTimeout(
-    () => {
-      try {
-        const {
-          year,
-          month,
-          startDay,
-          endDay,
-        } = inputs;
-
-
-        cleanupOldHistory(
-          year,
-          month,
-        );
-
-
-        const startingCounts =
-          getStartingCounts(
-            year,
-            month,
-          );
-
-
-        const originalSchedule =
-          optimizeMonth(
-            year,
-            month,
-            startDay,
-            endDay,
-            startingCounts,
-          );
-
-
-        currentOriginalSchedule =
-          originalSchedule;
-
-
-        currentOriginalCounts =
-          calculateOriginalCounts(
-            originalSchedule,
-          );
-
-
-        /*
-         * 연차를 반영한 실제 화면
-         */
-        currentSchedule =
-          applyLeavesToSchedule(
-            originalSchedule,
-          );
-
-
-        /*
-         * 상세 기록은 원래 정상 배정을 저장
-         */
-        const key =
-          getMonthKey(
-            year,
-            month,
-          );
-
-
-        appData.history[key] =
-          {
-            schedule:
-              deepClone(
-                originalSchedule,
-              ),
-
-            originalCounts:
-              deepClone(
-                currentOriginalCounts,
-              ),
-
-            leave:
-              getLeaveMapForMonth(
-                year,
-                month,
-              ),
-          };
-
-
-        cleanupOldHistory(
-          year,
-          month,
-        );
-
-
-        saveLocalData();
-
-
-        renderSchedule();
-      } catch (error) {
-        console.error(
-          error,
-        );
-
-
-        if (status) {
-          status.textContent =
-            "배정 실패";
-
-          status.classList.remove(
-            "success",
-          );
-        }
-
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : "배정표 생성 중 오류가 발생했습니다.",
-        );
-      }
-    },
-    20,
-  );
-}
-
-
-/* =========================================================
- * 날짜 입력
- * ========================================================= */
-
-function readDateInputs() {
-  const year =
-    Number(
-      document.getElementById(
-        "yearInput",
-      ).value,
-    );
-
-
-  const month =
-    Number(
-      document.getElementById(
-        "monthInput",
-      ).value,
-    );
-
-
-  const startDay =
-    Number(
-      document.getElementById(
-        "startDayInput",
-      ).value,
-    );
-
-
-  const endDay =
-    Number(
-      document.getElementById(
-        "endDayInput",
-      ).value,
-    );
-
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(startDay) ||
-    !Number.isInteger(endDay)
-  ) {
-    throw new Error(
-      "연도, 월, 시작일, 종료일을 확인해주세요.",
-    );
-  }
-
-
-  if (
-    month < 1 ||
-    month > 12
-  ) {
-    throw new Error(
-      "월은 1~12 사이여야 합니다.",
-    );
-  }
-
-
-  const daysInMonth =
-    new Date(
-      year,
-      month,
-      0,
-    ).getDate();
-
-
-  if (
-    startDay < 1 ||
-    startDay > daysInMonth
-  ) {
-    throw new Error(
-      "시작일이 올바르지 않습니다.",
-    );
-  }
-
-
-  if (
-    endDay < 1 ||
-    endDay > daysInMonth
-  ) {
-    throw new Error(
-      "종료일이 올바르지 않습니다.",
-    );
-  }
-
-
-  if (
-    startDay > endDay
-  ) {
-    throw new Error(
-      "시작일은 종료일보다 클 수 없습니다.",
-    );
-  }
-
-
-  return {
-    year,
-    month,
-    startDay,
-    endDay,
-  };
-}
-
-
-/* =========================================================
- * 다크모드
- * ========================================================= */
-
-function updateThemeButton() {
-  const button =
-    document.getElementById(
-      "themeToggle",
-    );
-
-
-  if (!button) {
-    return;
-  }
-
-
-  const isDark =
-    document.body.classList.contains(
-      "dark",
-    );
-
-
-  button.textContent =
-    isDark
-      ? "라이트모드"
-      : "다크모드";
-}
-
-
-function restoreTheme() {
-  const theme =
-    localStorage.getItem(
-      THEME_KEY,
-    );
-
-
-  if (
-    theme === "dark"
-  ) {
-    document.body.classList.add(
-      "dark",
-    );
-  }
-
-
-  updateThemeButton();
-}
-
-
-function handleThemeToggle() {
-  document.body.classList.toggle(
-    "dark",
-  );
-
-
-  const isDark =
-    document.body.classList.contains(
-      "dark",
-    );
-
-
-  localStorage.setItem(
-    THEME_KEY,
-    isDark
-      ? "dark"
-      : "light",
-  );
-
-
-  updateThemeButton();
-}
-
-
-/* =========================================================
- * 요일
- * ========================================================= */
-
-function getWeekdayName(
-  weekday,
-) {
-  const names = [
-    "일",
-    "월",
-    "화",
-    "수",
-    "목",
-    "금",
-    "토",
-  ];
-
-
-  return names[
-    weekday
-  ];
-}
-
-
-/* =========================================================
- * 초기화
- * ========================================================= */
-
-async function initializeApp() {
-  restoreTheme();
-
-
-  loadGithubConfig();
-
-  loadLocalData();
-
-
-  updateGithubForm();
-
-  updateGithubConfigStatus();
-
-  renderLeaveList();
-
-  renderEmptySummaries();
-
-  updateDataStatus();
-
-
-  /*
-   * GitHub 기록을 자동으로 우선 확인한다.
-   */
-  if (
-    githubConfig.owner &&
-    githubConfig.repo
-  ) {
-    await loadRepositoryData(
-      false,
-    );
-  }
-
-
-  const generateButton =
-    document.getElementById(
-      "generateButton",
-    );
-
-
-  if (
-    generateButton
-  ) {
-    generateButton.addEventListener(
-      "click",
-      handleGenerate,
-    );
-  }
-
-
-  const copyButton =
-    document.getElementById(
-      "copyButton",
-    );
-
-
-  if (
-    copyButton
-  ) {
-    copyButton.addEventListener(
-      "click",
-      handleCopy,
-    );
-  }
-
-
-  const themeButton =
-    document.getElementById(
-      "themeToggle",
-    );
-
-
-  if (
-    themeButton
-  ) {
-    themeButton.addEventListener(
-      "click",
-      handleThemeToggle,
-    );
-  }
-
-
-  const saveLeaveButton =
-    document.getElementById(
-      "saveLeaveButton",
-    );
-
-
-  if (
-    saveLeaveButton
-  ) {
-    saveLeaveButton.addEventListener(
-      "click",
-      handleSaveLeave,
-    );
-  }
-
-
-  const clearLeaveButton =
-    document.getElementById(
-      "clearLeaveButton",
-    );
-
-
-  if (
-    clearLeaveButton
-  ) {
-    clearLeaveButton.addEventListener(
-      "click",
-      handleClearLeaves,
-    );
-  }
-
-
-  const saveGithubConfigButton =
-    document.getElementById(
-      "saveGithubConfigButton",
-    );
-
-
-  if (
-    saveGithubConfigButton
-  ) {
-    saveGithubConfigButton.addEventListener(
-      "click",
-      handleSaveGithubConfig,
-    );
-  }
-
-
-  const testGithubButton =
-    document.getElementById(
-      "testGithubButton",
-    );
-
-
-  if (
-    testGithubButton
-  ) {
-    testGithubButton.addEventListener(
-      "click",
-      handleTestGithub,
-    );
-  }
-
-
-  const prepareGithubButton =
-    document.getElementById(
-      "prepareGithubButton",
-    );
-
-
-  if (
-    prepareGithubButton
-  ) {
-    prepareGithubButton.addEventListener(
-      "click",
-      handlePrepareGithub,
-    );
-  }
-
-
-  const copyJsonButton =
-    document.getElementById(
-      "copyJsonButton",
-    );
-
-
-  if (
-    copyJsonButton
-  ) {
-    copyJsonButton.addEventListener(
-      "click",
-      handleCopyJson,
-    );
-  }
-
-
-  const openGithubEditButton =
-    document.getElementById(
-      "openGithubEditButton",
-    );
-
-
-  if (
-    openGithubEditButton
-  ) {
-    openGithubEditButton.addEventListener(
-      "click",
-      handleOpenGithubEdit,
-    );
-  }
-
-
-  const loadRepositoryButton =
-    document.getElementById(
-      "loadRepositoryButton",
-    );
-
-
-  if (
-    loadRepositoryButton
-  ) {
-    loadRepositoryButton.addEventListener(
-      "click",
-      () =>
-        loadRepositoryData(
-          true,
-        ),
-    );
-  }
-
-
-  const exportButton =
-    document.getElementById(
-      "exportButton",
-    );
-
-
-  if (
-    exportButton
-  ) {
-    exportButton.addEventListener(
-      "click",
-      handleExport,
-    );
-  }
-
-
-  const importInput =
-    document.getElementById(
-      "importInput",
-    );
-
-
-  if (
-    importInput
-  ) {
-    importInput.addEventListener(
-      "change",
-      handleImport,
-    );
-  }
-
-
-  const clearDataButton =
-    document.getElementById(
-      "clearDataButton",
-    );
-
-
-  if (
-    clearDataButton
-  ) {
-    clearDataButton.addEventListener(
-      "click",
-      handleClearData,
-    );
-  }
-}
-
-
-/* =========================================================
- * 이벤트 함수
- * ========================================================= */
-
-function handleSaveGithubConfig() {
-  try {
-    githubConfig =
-      readGithubInputs();
-
-    saveGithubConfig();
-
-    alert(
-      "GitHub 저장 설정을 저장했습니다.",
-    );
-  } catch (error) {
-    alert(
-      error instanceof Error
-        ? error.message
-        : "GitHub 설정을 확인해주세요.",
-    );
-  }
-}
-
+ * 연차 저장
+ * ======================================================= */
 
 function handleSaveLeave() {
   const input =
     document.getElementById(
       "leaveDateInput",
     );
-
 
   if (
     !input ||
@@ -4645,17 +3975,15 @@ function handleSaveLeave() {
     return;
   }
 
-
   const workers =
     [
       ...document.querySelectorAll(
         "[data-leave-worker]:checked",
       ),
     ].map(
-      (element) =>
-        element.value,
+      (checkbox) =>
+        checkbox.value,
     );
-
 
   if (
     workers.length === 0
@@ -4667,16 +3995,13 @@ function handleSaveLeave() {
     return;
   }
 
-
   setLeaveWorkers(
     input.value,
     workers,
   );
 
-
   input.value =
     "";
-
 
   document
     .querySelectorAll(
@@ -4697,25 +4022,471 @@ function handleClearLeaves() {
       "등록된 연차를 모두 삭제할까요?",
     );
 
-
   if (!confirmed) {
     return;
   }
 
-
   appData.leave =
     {};
-
 
   saveLocalData();
 
   renderLeaveList();
+  renderCalendar();
 }
 
 
 /* =========================================================
- * 초기 데이터
- * ========================================================= */
+ * 테마
+ * ======================================================= */
+
+function updateThemeButton() {
+  const button =
+    document.getElementById(
+      "themeToggle",
+    );
+
+  if (!button) {
+    return;
+  }
+
+  const dark =
+    document.body.classList.contains(
+      "dark",
+    );
+
+  button.textContent =
+    dark
+      ? "라이트모드"
+      : "다크모드";
+}
+
+
+function restoreTheme() {
+  const theme =
+    localStorage.getItem(
+      THEME_KEY,
+    );
+
+  if (
+    theme === "dark"
+  ) {
+    document.body.classList.add(
+      "dark",
+    );
+  }
+
+  updateThemeButton();
+}
+
+
+function handleThemeToggle() {
+  document.body.classList.toggle(
+    "dark",
+  );
+
+  const dark =
+    document.body.classList.contains(
+      "dark",
+    );
+
+  localStorage.setItem(
+    THEME_KEY,
+    dark
+      ? "dark"
+      : "light",
+  );
+
+  updateThemeButton();
+}
+
+
+/* =========================================================
+ * 요일
+ * ======================================================= */
+
+function getWeekdayName(
+  weekday,
+) {
+  const names = [
+    "일",
+    "월",
+    "화",
+    "수",
+    "목",
+    "금",
+    "토",
+  ];
+
+  return names[
+    weekday
+  ];
+}
+
+
+/* =========================================================
+ * 초기화
+ * ======================================================= */
+
+async function initializeApp() {
+  restoreTheme();
+
+  loadGithubConfig();
+
+  loadLocalData();
+
+  updateGithubForm();
+  updateGithubConfigStatus();
+
+  renderLeaveList();
+  renderEmptySummaries();
+  updateDataStatus();
+
+  /*
+   * 입력된 월을 달력 기본값으로 사용
+   */
+  updateCalendarToGeneratedMonth();
+  renderCalendar();
+
+  /*
+   * 저장소 설정이 있으면 GitHub 기록 자동 로드
+   */
+  if (
+    githubConfig.owner &&
+    githubConfig.repo
+  ) {
+    await loadRepositoryData(
+      false,
+    );
+  }
+
+
+  const generateButton =
+    document.getElementById(
+      "generateButton",
+    );
+
+  if (
+    generateButton
+  ) {
+    generateButton.addEventListener(
+      "click",
+      handleGenerate,
+    );
+  }
+
+
+  const copyButton =
+    document.getElementById(
+      "copyButton",
+    );
+
+  if (
+    copyButton
+  ) {
+    copyButton.addEventListener(
+      "click",
+      handleCopy,
+    );
+  }
+
+
+  const previousMonthButton =
+    document.getElementById(
+      "previousMonthButton",
+    );
+
+  if (
+    previousMonthButton
+  ) {
+    previousMonthButton.addEventListener(
+      "click",
+      () =>
+        moveCalendarMonth(
+          -1,
+        ),
+    );
+  }
+
+
+  const nextMonthButton =
+    document.getElementById(
+      "nextMonthButton",
+    );
+
+  if (
+    nextMonthButton
+  ) {
+    nextMonthButton.addEventListener(
+      "click",
+      () =>
+        moveCalendarMonth(
+          1,
+        ),
+    );
+  }
+
+
+  const themeToggle =
+    document.getElementById(
+      "themeToggle",
+    );
+
+  if (
+    themeToggle
+  ) {
+    themeToggle.addEventListener(
+      "click",
+      handleThemeToggle,
+    );
+  }
+
+
+  const saveLeaveButton =
+    document.getElementById(
+      "saveLeaveButton",
+    );
+
+  if (
+    saveLeaveButton
+  ) {
+    saveLeaveButton.addEventListener(
+      "click",
+      handleSaveLeave,
+    );
+  }
+
+
+  const clearLeaveButton =
+    document.getElementById(
+      "clearLeaveButton",
+    );
+
+  if (
+    clearLeaveButton
+  ) {
+    clearLeaveButton.addEventListener(
+      "click",
+      handleClearLeaves,
+    );
+  }
+
+
+  const saveGithubConfigButton =
+    document.getElementById(
+      "saveGithubConfigButton",
+    );
+
+  if (
+    saveGithubConfigButton
+  ) {
+    saveGithubConfigButton.addEventListener(
+      "click",
+      handleSaveGithubConfig,
+    );
+  }
+
+
+  const testGithubButton =
+    document.getElementById(
+      "testGithubButton",
+    );
+
+  if (
+    testGithubButton
+  ) {
+    testGithubButton.addEventListener(
+      "click",
+      handleTestGithub,
+    );
+  }
+
+
+  const prepareGithubButton =
+    document.getElementById(
+      "prepareGithubButton",
+    );
+
+  if (
+    prepareGithubButton
+  ) {
+    prepareGithubButton.addEventListener(
+      "click",
+      handlePrepareGithub,
+    );
+  }
+
+
+  const copyJsonButton =
+    document.getElementById(
+      "copyJsonButton",
+    );
+
+  if (
+    copyJsonButton
+  ) {
+    copyJsonButton.addEventListener(
+      "click",
+      handleCopyJson,
+    );
+  }
+
+
+  const openGithubEditButton =
+    document.getElementById(
+      "openGithubEditButton",
+    );
+
+  if (
+    openGithubEditButton
+  ) {
+    openGithubEditButton.addEventListener(
+      "click",
+      handleOpenGithubEdit,
+    );
+  }
+
+
+  const loadRepositoryButton =
+    document.getElementById(
+      "loadRepositoryButton",
+    );
+
+  if (
+    loadRepositoryButton
+  ) {
+    loadRepositoryButton.addEventListener(
+      "click",
+      () =>
+        loadRepositoryData(
+          true,
+        ),
+    );
+  }
+
+
+  const exportButton =
+    document.getElementById(
+      "exportButton",
+    );
+
+  if (
+    exportButton
+  ) {
+    exportButton.addEventListener(
+      "click",
+      handleExport,
+    );
+  }
+
+
+  const importInput =
+    document.getElementById(
+      "importInput",
+    );
+
+  if (
+    importInput
+  ) {
+    importInput.addEventListener(
+      "change",
+      handleImport,
+    );
+  }
+
+
+  const clearDataButton =
+    document.getElementById(
+      "clearDataButton",
+    );
+
+  if (
+    clearDataButton
+  ) {
+    clearDataButton.addEventListener(
+      "click",
+      handleClearData,
+    );
+  }
+
+
+  const leaveDateInput =
+    document.getElementById(
+      "leaveDateInput",
+    );
+
+  if (
+    leaveDateInput
+  ) {
+    leaveDateInput.addEventListener(
+      "change",
+      () => {
+        loadLeaveCheckboxes(
+          leaveDateInput.value,
+        );
+      },
+    );
+  }
+
+
+  const yearInput =
+    document.getElementById(
+      "yearInput",
+    );
+
+  const monthInput =
+    document.getElementById(
+      "monthInput",
+    );
+
+  if (
+    yearInput &&
+    monthInput
+  ) {
+    const syncCalendar =
+      () => {
+        const year =
+          Number(
+            yearInput.value,
+          );
+
+        const month =
+          Number(
+            monthInput.value,
+          );
+
+        if (
+          Number.isInteger(
+            year,
+          ) &&
+          Number.isInteger(
+            month,
+          ) &&
+          month >= 1 &&
+          month <= 12
+        ) {
+          calendarYear =
+            year;
+
+          calendarMonth =
+            month;
+
+          renderCalendar();
+        }
+      };
+
+    yearInput.addEventListener(
+      "change",
+      syncCalendar,
+    );
+
+    monthInput.addEventListener(
+      "change",
+      syncCalendar,
+    );
+  }
+}
+
 
 document.addEventListener(
   "DOMContentLoaded",
