@@ -1,6 +1,5 @@
 "use strict";
 
-
 /*
  * =========================================================
  * 업무 배정표 자동 생성기
@@ -10,32 +9,36 @@
  *
  * GitHub
  *   data/history.json
- *          ↓
- *      웹앱 불러오기
  *
  * 브라우저
  *   localStorage
- *          ↓
- *      임시 저장
  *
- * 사용자가 백업한 JSON
- *          ↓
- *   GitHub에 커밋 가능
+ * GitHub Pages
+ *   history.json 읽기 가능
  *
+ * 주의
+ * ---------------------------------------------------------
+ * 브라우저에 GitHub 토큰을 저장하지 않는다.
+ * 따라서 저장은
+ *
+ * 1. JSON 자동 복사
+ * 2. GitHub 편집 화면 열기
+ * 3. 사용자가 Commit
+ *
+ * 방식으로 처리한다.
  * =========================================================
  */
 
-
 const STORAGE_KEY =
-  "assignment-app-data-v3";
+  "assignment-app-data-v4";
+
+const GITHUB_CONFIG_KEY =
+  "assignment-app-github-config-v1";
 
 const THEME_KEY =
   "assignment-app-theme";
 
-const REPOSITORY_DATA_PATH =
-  "data/history.json";
-
-const DATA_VERSION = 3;
+const DATA_VERSION = 4;
 
 const RETENTION_MONTHS = 6;
 
@@ -46,7 +49,7 @@ const MAX_STATES_PER_SIGNATURE = 2;
 
 /* =========================================================
  * 작업자
- * ======================================================= */
+ * ========================================================= */
 
 const WORKERS = [
   "김",
@@ -59,7 +62,7 @@ const WORKERS = [
 
 /* =========================================================
  * 업무
- * ======================================================= */
+ * ========================================================= */
 
 const JOBS = [
   "볼분리",
@@ -71,8 +74,8 @@ const JOBS = [
 
 
 /* =========================================================
- * 제한
- * ======================================================= */
+ * 작업 제한
+ * ========================================================= */
 
 const MAIN_WORKERS = [
   "김",
@@ -80,13 +83,11 @@ const MAIN_WORKERS = [
   "임",
 ];
 
-
 const LIU_JOBS = [
   "설거지 및 성형보조",
   "분쇄 및 성형보조",
   "성형 및 분쇄보조",
 ];
-
 
 const PARK_ALLOWED_JOBS = [
   "설거지 및 성형보조",
@@ -96,31 +97,26 @@ const PARK_ALLOWED_JOBS = [
 
 /* =========================================================
  * 전역 상태
- * ======================================================= */
+ * ========================================================= */
 
 let appData =
   createEmptyData();
 
+let githubConfig =
+  createEmptyGithubConfig();
 
-let currentSchedule =
-  [];
+let currentSchedule = [];
 
+let currentOriginalSchedule = [];
 
-let currentOriginalSchedule =
-  [];
+let currentOriginalCounts = null;
 
-
-let currentOriginalCounts =
-  null;
-
-
-let copiedText =
-  "";
+let copiedText = "";
 
 
 /* =========================================================
  * 빈 데이터
- * ======================================================= */
+ * ========================================================= */
 
 function createEmptyWorkerCounts() {
   const result = {};
@@ -140,7 +136,6 @@ function createEmptyWorkerCounts() {
   return result;
 }
 
-
 function createEmptyData() {
   return {
     version:
@@ -158,14 +153,22 @@ function createEmptyData() {
   };
 }
 
+function createEmptyGithubConfig() {
+  return {
+    owner: "",
+    repo: "",
+    branch: "main",
+    dataPath:
+      "data/history.json",
+  };
+}
+
 
 /* =========================================================
- * 객체 복제
- * ======================================================= */
+ * 복제
+ * ========================================================= */
 
-function deepClone(
-  value,
-) {
+function deepClone(value) {
   return JSON.parse(
     JSON.stringify(value),
   );
@@ -174,7 +177,7 @@ function deepClone(
 
 /* =========================================================
  * 데이터 정규화
- * ======================================================= */
+ * ========================================================= */
 
 function normalizeWorkerCounts(
   input,
@@ -210,7 +213,9 @@ function normalizeWorkerCounts(
         );
 
       if (
-        Number.isFinite(value) &&
+        Number.isFinite(
+          value,
+        ) &&
         value >= 0
       ) {
         result[worker][job] =
@@ -348,12 +353,6 @@ function normalizeData(
     return result;
   }
 
-  result.version =
-    DATA_VERSION;
-
-  result.retentionMonths =
-    RETENTION_MONTHS;
-
   result.baseline =
     normalizeWorkerCounts(
       input.baseline,
@@ -374,8 +373,220 @@ function normalizeData(
 
 
 /* =========================================================
- * localStorage
- * ======================================================= */
+ * GitHub 설정 저장/불러오기
+ * ========================================================= */
+
+function loadGithubConfig() {
+  try {
+    const raw =
+      localStorage.getItem(
+        GITHUB_CONFIG_KEY,
+      );
+
+    if (!raw) {
+      githubConfig =
+        createEmptyGithubConfig();
+
+      return;
+    }
+
+    const parsed =
+      JSON.parse(raw);
+
+    githubConfig = {
+      ...createEmptyGithubConfig(),
+
+      ...parsed,
+    };
+  } catch (error) {
+    console.error(
+      "GitHub 설정 불러오기 실패:",
+      error,
+    );
+
+    githubConfig =
+      createEmptyGithubConfig();
+  }
+}
+
+
+function saveGithubConfig() {
+  try {
+    localStorage.setItem(
+      GITHUB_CONFIG_KEY,
+      JSON.stringify(
+        githubConfig,
+      ),
+    );
+
+    updateGithubForm();
+
+    updateGithubConfigStatus();
+  } catch (error) {
+    console.error(
+      "GitHub 설정 저장 실패:",
+      error,
+    );
+
+    alert(
+      "GitHub 설정을 브라우저에 저장하지 못했습니다.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * GitHub 설정 읽기
+ * ========================================================= */
+
+function readGithubInputs() {
+  const owner =
+    document.getElementById(
+      "githubOwnerInput",
+    ).value.trim();
+
+  const repo =
+    document.getElementById(
+      "githubRepoInput",
+    ).value.trim();
+
+  const branch =
+    document.getElementById(
+      "githubBranchInput",
+    ).value.trim() ||
+    "main";
+
+  const dataPath =
+    document.getElementById(
+      "githubDataPathInput",
+    ).value.trim() ||
+    "data/history.json";
+
+
+  if (!owner) {
+    throw new Error(
+      "GitHub 사용자명을 입력해주세요.",
+    );
+  }
+
+  if (!repo) {
+    throw new Error(
+      "GitHub 저장소명을 입력해주세요.",
+    );
+  }
+
+  if (!branch) {
+    throw new Error(
+      "브랜치를 입력해주세요.",
+    );
+  }
+
+  if (!dataPath) {
+    throw new Error(
+      "데이터 경로를 입력해주세요.",
+    );
+  }
+
+
+  return {
+    owner,
+    repo,
+    branch,
+    dataPath:
+      dataPath.replace(
+        /^\/+/,
+        "",
+      ),
+  };
+}
+
+
+/* =========================================================
+ * GitHub 설정 화면
+ * ========================================================= */
+
+function updateGithubForm() {
+  const owner =
+    document.getElementById(
+      "githubOwnerInput",
+    );
+
+  const repo =
+    document.getElementById(
+      "githubRepoInput",
+    );
+
+  const branch =
+    document.getElementById(
+      "githubBranchInput",
+    );
+
+  const dataPath =
+    document.getElementById(
+      "githubDataPathInput",
+    );
+
+
+  if (owner) {
+    owner.value =
+      githubConfig.owner;
+  }
+
+  if (repo) {
+    repo.value =
+      githubConfig.repo;
+  }
+
+  if (branch) {
+    branch.value =
+      githubConfig.branch;
+  }
+
+  if (dataPath) {
+    dataPath.value =
+      githubConfig.dataPath;
+  }
+}
+
+
+function updateGithubConfigStatus() {
+  const element =
+    document.getElementById(
+      "githubConfigStatus",
+    );
+
+  if (!element) {
+    return;
+  }
+
+
+  if (
+    !githubConfig.owner ||
+    !githubConfig.repo
+  ) {
+    element.textContent =
+      "GitHub 저장소가 설정되지 않았습니다.";
+
+    element.classList.remove(
+      "success",
+    );
+
+    return;
+  }
+
+
+  element.textContent =
+    `저장소: ${githubConfig.owner}/${githubConfig.repo}\n브랜치: ${githubConfig.branch}\n데이터: ${githubConfig.dataPath}`;
+
+  element.classList.add(
+    "success",
+  );
+}
+
+
+/* =========================================================
+ * localStorage 데이터
+ * ========================================================= */
 
 function loadLocalData() {
   try {
@@ -428,8 +639,86 @@ function saveLocalData() {
 
 
 /* =========================================================
- * GitHub Pages의 history.json 불러오기
- * ======================================================= */
+ * GitHub 데이터 URL
+ * ========================================================= */
+
+function getGithubRawUrl() {
+  if (
+    !githubConfig.owner ||
+    !githubConfig.repo
+  ) {
+    return null;
+  }
+
+
+  const encodedPath =
+    githubConfig.dataPath
+      .split("/")
+      .map(
+        (part) =>
+          encodeURIComponent(
+            part,
+          ),
+      )
+      .join("/");
+
+
+  return (
+    `https://raw.githubusercontent.com/` +
+    `${encodeURIComponent(
+      githubConfig.owner,
+    )}/` +
+    `${encodeURIComponent(
+      githubConfig.repo,
+    )}/` +
+    `${encodeURIComponent(
+      githubConfig.branch,
+    )}/` +
+    `${encodedPath}`
+  );
+}
+
+
+function getGithubEditUrl() {
+  if (
+    !githubConfig.owner ||
+    !githubConfig.repo
+  ) {
+    return null;
+  }
+
+
+  const encodedPath =
+    githubConfig.dataPath
+      .split("/")
+      .map(
+        (part) =>
+          encodeURIComponent(
+            part,
+          ),
+      )
+      .join("/");
+
+
+  return (
+    `https://github.com/` +
+    `${encodeURIComponent(
+      githubConfig.owner,
+    )}/` +
+    `${encodeURIComponent(
+      githubConfig.repo,
+    )}/edit/` +
+    `${encodeURIComponent(
+      githubConfig.branch,
+    )}/` +
+    encodedPath
+  );
+}
+
+
+/* =========================================================
+ * GitHub 기록 불러오기
+ * ========================================================= */
 
 async function loadRepositoryData(
   showAlert = true,
@@ -439,68 +728,82 @@ async function loadRepositoryData(
       "dataStatus",
     );
 
+
+  if (
+    !githubConfig.owner ||
+    !githubConfig.repo
+  ) {
+    if (status) {
+      status.textContent =
+        "GitHub 저장소 미설정";
+    }
+
+    if (showAlert) {
+      alert(
+        "먼저 GitHub 저장소 정보를 입력해주세요.",
+      );
+    }
+
+    return false;
+  }
+
+
+  const rawUrl =
+    getGithubRawUrl();
+
+
+  if (!rawUrl) {
+    return false;
+  }
+
+
   if (status) {
     status.textContent =
       "GitHub 기록 불러오는 중...";
   }
 
+
   try {
-    /*
-     * document.baseURI를 사용해야
-     * 사용자 저장소가
-     *
-     * https://user.github.io/repository/
-     *
-     * 형태여도 정상적으로 동작한다.
-     */
-    const dataUrl =
-      new URL(
-        REPOSITORY_DATA_PATH,
-        document.baseURI,
-      ).href;
-
-
-    /*
-     * 캐시 방지
-     */
-    const url =
-      `${dataUrl}?t=${Date.now()}`;
-
-
     const response =
       await fetch(
-        url,
+        `${rawUrl}?t=${Date.now()}`,
         {
-          method: "GET",
-          cache: "no-store",
+          cache:
+            "no-store",
         },
       );
 
 
     if (
-      response.status === 404
+      response.status ===
+      404
     ) {
-      /*
-       * 아직 history.json이 없는 경우
-       * 빈 데이터 사용
-       */
       appData =
         createEmptyData();
 
       saveLocalData();
 
+      renderLeaveList();
+
+      updateDataStatus();
+
       if (status) {
         status.textContent =
-          "GitHub 기록 없음 · 새 데이터";
+          "GitHub history.json 없음";
+      }
+
+
+      if (showAlert) {
+        alert(
+          "GitHub 저장소에 history.json이 없습니다.",
+        );
       }
 
       return false;
     }
 
 
-    if (
-      !response.ok
-    ) {
+    if (!response.ok) {
       throw new Error(
         `HTTP ${response.status}`,
       );
@@ -524,6 +827,12 @@ async function loadRepositoryData(
     updateDataStatus();
 
 
+    if (status) {
+      status.textContent =
+        "GitHub 기록 불러오기 완료";
+    }
+
+
     if (showAlert) {
       alert(
         "GitHub 저장소의 기록을 불러왔습니다.",
@@ -539,27 +848,15 @@ async function loadRepositoryData(
     );
 
 
-    /*
-     * GitHub에 연결할 수 없더라도
-     * 기존 브라우저 데이터를 유지한다.
-     */
-    const hasLocal =
-      loadLocalData();
-
-
     if (status) {
       status.textContent =
-        hasLocal
-          ? "GitHub 연결 실패 · 기존 로컬 기록 사용"
-          : "GitHub 기록을 불러오지 못했습니다.";
+        "GitHub 기록 불러오기 실패";
     }
 
 
-    if (
-      showAlert
-    ) {
+    if (showAlert) {
       alert(
-        "GitHub 기록을 불러오지 못했습니다.\n기존 브라우저 기록이 있으면 그것을 사용합니다.",
+        "GitHub 기록을 불러오지 못했습니다.",
       );
     }
 
@@ -570,8 +867,43 @@ async function loadRepositoryData(
 
 
 /* =========================================================
- * 월 키
- * ======================================================= */
+ * GitHub 저장소 확인
+ * ========================================================= */
+
+async function handleTestGithub() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+    const loaded =
+      await loadRepositoryData(
+        false,
+      );
+
+    if (loaded) {
+      alert(
+        "GitHub 저장소와 history.json을 확인했습니다.",
+      );
+    } else {
+      alert(
+        "저장소 정보는 정상적으로 설정되었지만 history.json을 확인하지 못했습니다.\n\n파일이 아직 없다면 data/history.json을 먼저 만들어주세요.",
+      );
+    }
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 설정을 확인해주세요.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * 월 계산
+ * ========================================================= */
 
 function getMonthKey(
   year,
@@ -582,6 +914,7 @@ function getMonthKey(
       4,
       "0",
     ),
+
     String(month).padStart(
       2,
       "0",
@@ -589,10 +922,6 @@ function getMonthKey(
   ].join("-");
 }
 
-
-/* =========================================================
- * 월 파싱
- * ======================================================= */
 
 function parseMonthKey(
   key,
@@ -608,71 +937,17 @@ function parseMonthKey(
 
   return {
     year:
-      Number(match[1]),
+      Number(
+        match[1],
+      ),
 
     month:
-      Number(match[2]),
+      Number(
+        match[2],
+      ),
   };
 }
 
-
-/* =========================================================
- * 날짜
- * ======================================================= */
-
-function getDateInfo(
-  year,
-  month,
-  day,
-) {
-  const date =
-    new Date(
-      year,
-      month - 1,
-      day,
-    );
-
-  return {
-    year:
-      date.getFullYear(),
-
-    month:
-      date.getMonth() + 1,
-
-    day:
-      date.getDate(),
-
-    weekday:
-      date.getDay(),
-  };
-}
-
-
-function formatDateKey(
-  year,
-  month,
-  day,
-) {
-  return [
-    String(year).padStart(
-      4,
-      "0",
-    ),
-    String(month).padStart(
-      2,
-      "0",
-    ),
-    String(day).padStart(
-      2,
-      "0",
-    ),
-  ].join("-");
-}
-
-
-/* =========================================================
- * 최근 6개월
- * ======================================================= */
 
 function addMonths(
   year,
@@ -728,8 +1003,64 @@ function getRollingMonthKeys(
 
 
 /* =========================================================
- * 카운트 더하기
- * ======================================================= */
+ * 날짜
+ * ========================================================= */
+
+function getDateInfo(
+  year,
+  month,
+  day,
+) {
+  const date =
+    new Date(
+      year,
+      month - 1,
+      day,
+    );
+
+  return {
+    year:
+      date.getFullYear(),
+
+    month:
+      date.getMonth() + 1,
+
+    day:
+      date.getDate(),
+
+    weekday:
+      date.getDay(),
+  };
+}
+
+
+function formatDateKey(
+  year,
+  month,
+  day,
+) {
+  return [
+    String(year).padStart(
+      4,
+      "0",
+    ),
+
+    String(month).padStart(
+      2,
+      "0",
+    ),
+
+    String(day).padStart(
+      2,
+      "0",
+    ),
+  ].join("-");
+}
+
+
+/* =========================================================
+ * 누적 데이터
+ * ========================================================= */
 
 function addWorkerCounts(
   base,
@@ -745,6 +1076,7 @@ function addWorkerCounts(
       extra,
     );
 
+
   for (
     const worker of WORKERS
   ) {
@@ -755,6 +1087,7 @@ function addWorkerCounts(
         source[worker][job];
     }
   }
+
 
   return result;
 }
@@ -769,6 +1102,7 @@ function addAssignmentToCounts(
       counts,
     );
 
+
   for (
     const job of JOBS
   ) {
@@ -779,16 +1113,80 @@ function addAssignmentToCounts(
       continue;
     }
 
-    result[worker][job] += 1;
+    result[worker][job] +=
+      1;
   }
+
 
   return result;
 }
 
 
+function getStartingCounts(
+  year,
+  month,
+) {
+  let counts =
+    normalizeWorkerCounts(
+      appData.baseline,
+    );
+
+
+  const targetKey =
+    getMonthKey(
+      year,
+      month,
+    );
+
+
+  const keys =
+    Object.keys(
+      appData.history,
+    ).sort(
+      (a, b) =>
+        a.localeCompare(b),
+    );
+
+
+  for (
+    const key of keys
+  ) {
+    if (
+      key === targetKey
+    ) {
+      continue;
+    }
+
+
+    const monthData =
+      appData.history[
+        key
+      ];
+
+
+    if (
+      !monthData ||
+      !monthData.originalCounts
+    ) {
+      continue;
+    }
+
+
+    counts =
+      addWorkerCounts(
+        counts,
+        monthData.originalCounts,
+      );
+  }
+
+
+  return counts;
+}
+
+
 /* =========================================================
- * 오래된 기록 압축
- * ======================================================= */
+ * 오래된 기록 정리
+ * ========================================================= */
 
 function cleanupOldHistory(
   referenceYear = null,
@@ -802,13 +1200,16 @@ function cleanupOldHistory(
         a.localeCompare(b),
     );
 
+
   if (
     keys.length === 0
   ) {
     return;
   }
 
+
   let latestKey;
+
 
   if (
     referenceYear &&
@@ -824,34 +1225,40 @@ function cleanupOldHistory(
       keys[keys.length - 1];
   }
 
-  const parsed =
+
+  const latest =
     parseMonthKey(
       latestKey,
     );
 
-  if (!parsed) {
+
+  if (!latest) {
     return;
   }
 
-  const keepKeys =
+
+  const keep =
     new Set(
       getRollingMonthKeys(
-        parsed.year,
-        parsed.month,
+        latest.year,
+        latest.month,
       ),
     );
+
 
   const oldKeys =
     keys.filter(
       (key) =>
-        !keepKeys.has(key),
+        !keep.has(key),
     );
+
 
   if (
     oldKeys.length === 0
   ) {
     return;
   }
+
 
   for (
     const key of oldKeys
@@ -860,6 +1267,7 @@ function cleanupOldHistory(
       appData.history[
         key
       ];
+
 
     if (
       monthData &&
@@ -872,77 +1280,20 @@ function cleanupOldHistory(
         );
     }
 
+
     delete appData.history[
       key
     ];
   }
+
 
   saveLocalData();
 }
 
 
 /* =========================================================
- * 현재 생성 대상 월을 제외한 누적 계산
- * ======================================================= */
-
-function getStartingCounts(
-  year,
-  month,
-) {
-  let counts =
-    normalizeWorkerCounts(
-      appData.baseline,
-    );
-
-  const targetKey =
-    getMonthKey(
-      year,
-      month,
-    );
-
-  const keys =
-    Object.keys(
-      appData.history,
-    ).sort(
-      (a, b) =>
-        a.localeCompare(b),
-    );
-
-  for (
-    const key of keys
-  ) {
-    if (
-      key === targetKey
-    ) {
-      continue;
-    }
-
-    const monthData =
-      appData.history[
-        key
-      ];
-
-    if (
-      !monthData ||
-      !monthData.originalCounts
-    ) {
-      continue;
-    }
-
-    counts =
-      addWorkerCounts(
-        counts,
-        monthData.originalCounts,
-      );
-  }
-
-  return counts;
-}
-
-
-/* =========================================================
  * 업무 가능 여부
- * ======================================================= */
+ * ========================================================= */
 
 function isAllowed(
   worker,
@@ -957,6 +1308,7 @@ function isAllowed(
     );
   }
 
+
   if (
     worker === "박"
   ) {
@@ -964,6 +1316,7 @@ function isAllowed(
       job,
     );
   }
+
 
   if (
     worker === "류"
@@ -973,13 +1326,14 @@ function isAllowed(
     );
   }
 
+
   return true;
 }
 
 
 /* =========================================================
  * 순열
- * ======================================================= */
+ * ========================================================= */
 
 function generatePermutations(
   items,
@@ -992,7 +1346,9 @@ function generatePermutations(
     ];
   }
 
+
   const result = [];
+
 
   for (
     let i = 0;
@@ -1002,25 +1358,35 @@ function generatePermutations(
     const current =
       items[i];
 
+
     const remaining = [
-      ...items.slice(0, i),
-      ...items.slice(i + 1),
+      ...items.slice(
+        0,
+        i,
+      ),
+
+      ...items.slice(
+        i + 1,
+      ),
     ];
 
-    const child =
+
+    const children =
       generatePermutations(
         remaining,
       );
 
+
     for (
-      const permutation of child
+      const child of children
     ) {
       result.push([
         current,
-        ...permutation,
+        ...child,
       ]);
     }
   }
+
 
   return result;
 }
@@ -1028,23 +1394,26 @@ function generatePermutations(
 
 /* =========================================================
  * 하루 후보
- * ======================================================= */
+ * ========================================================= */
 
 function generateDailyCandidates() {
   const result = [];
+
 
   const permutations =
     generatePermutations(
       WORKERS,
     );
 
+
   for (
-    const permutation
-      of permutations
+    const permutation of
+      permutations
   ) {
     const candidate = {};
 
     let valid = true;
+
 
     for (
       let i = 0;
@@ -1057,6 +1426,7 @@ function generateDailyCandidates() {
       const worker =
         permutation[i];
 
+
       if (
         !isAllowed(
           worker,
@@ -1067,32 +1437,39 @@ function generateDailyCandidates() {
         break;
       }
 
+
       candidate[job] =
         worker;
     }
+
 
     if (!valid) {
       continue;
     }
 
-    const workersUsed =
+
+    const usedWorkers =
       JOBS.map(
         (job) =>
           candidate[job],
       );
 
+
     if (
       new Set(
-        workersUsed,
-      ).size !== 5
+        usedWorkers,
+      ).size !==
+      WORKERS.length
     ) {
       continue;
     }
+
 
     result.push(
       candidate,
     );
   }
+
 
   return result;
 }
@@ -1100,7 +1477,7 @@ function generateDailyCandidates() {
 
 /* =========================================================
  * 범위
- * ======================================================= */
+ * ========================================================= */
 
 function getRange(
   values,
@@ -1112,6 +1489,7 @@ function getRange(
     return 0;
   }
 
+
   return (
     Math.max(...values) -
     Math.min(...values)
@@ -1120,8 +1498,8 @@ function getRange(
 
 
 /* =========================================================
- * 특정 카운트
- * ======================================================= */
+ * 균형 값
+ * ========================================================= */
 
 function getBowlCounts(
   counts,
@@ -1174,12 +1552,14 @@ function getMainExtraCounts(
     (worker) => {
       let total = 0;
 
+
       for (
         const job of LIU_JOBS
       ) {
         total +=
           counts[worker][job];
       }
+
 
       return total;
     },
@@ -1189,7 +1569,7 @@ function getMainExtraCounts(
 
 /* =========================================================
  * 연속 업무
- * ======================================================= */
+ * ========================================================= */
 
 function getJobForWorker(
   day,
@@ -1205,6 +1585,7 @@ function getJobForWorker(
     }
   }
 
+
   return null;
 }
 
@@ -1218,7 +1599,6 @@ function calculateConsecutivePenalty(
     return 0;
   }
 
-  let penalty = 0;
 
   const previous =
     schedule[
@@ -1229,6 +1609,10 @@ function calculateConsecutivePenalty(
     schedule[
       schedule.length - 1
     ];
+
+
+  let penalty = 0;
+
 
   for (
     const worker of WORKERS
@@ -1245,6 +1629,7 @@ function calculateConsecutivePenalty(
         worker,
       );
 
+
     if (
       previousJob &&
       previousJob ===
@@ -1253,6 +1638,7 @@ function calculateConsecutivePenalty(
       penalty += 1;
     }
   }
+
 
   return penalty;
 }
@@ -1267,19 +1653,21 @@ function calculateFullConsecutivePenalty(
     return 0;
   }
 
+
   let penalty = 0;
 
+
   for (
-    let index = 1;
-    index <
-      schedule.length;
-    index += 1
+    let i = 1;
+    i < schedule.length;
+    i += 1
   ) {
     const previous =
-      schedule[index - 1];
+      schedule[i - 1];
 
     const current =
-      schedule[index];
+      schedule[i];
+
 
     for (
       const worker of WORKERS
@@ -1296,6 +1684,7 @@ function calculateFullConsecutivePenalty(
           worker,
         );
 
+
       if (
         previousJob &&
         previousJob ===
@@ -1306,19 +1695,21 @@ function calculateFullConsecutivePenalty(
     }
   }
 
+
   return penalty;
 }
 
 
 /* =========================================================
- * 부분 상태 점수
- * ======================================================= */
+ * 부분 점수
+ * ========================================================= */
 
 function calculatePartialScore(
   state,
 ) {
   const counts =
     state.counts;
+
 
   const bowlRange =
     getRange(
@@ -1327,12 +1718,14 @@ function calculatePartialScore(
       ),
     );
 
+
   const helperRange =
     getRange(
       getBowlHelperCounts(
         counts,
       ),
     );
+
 
   const liuRange =
     getRange(
@@ -1341,12 +1734,14 @@ function calculatePartialScore(
       ),
     );
 
+
   const parkRange =
     getRange(
       getParkCounts(
         counts,
       ),
     );
+
 
   const mainExtraRange =
     getRange(
@@ -1355,10 +1750,12 @@ function calculatePartialScore(
       ),
     );
 
+
   const consecutive =
     calculateConsecutivePenalty(
       state.schedule,
     );
+
 
   return (
     bowlRange * 1000000 +
@@ -1373,13 +1770,14 @@ function calculatePartialScore(
 
 /* =========================================================
  * 최종 점수
- * ======================================================= */
+ * ========================================================= */
 
 function calculateFinalScore(
   state,
 ) {
   const counts =
     state.counts;
+
 
   const bowlRange =
     getRange(
@@ -1388,12 +1786,14 @@ function calculateFinalScore(
       ),
     );
 
+
   const helperRange =
     getRange(
       getBowlHelperCounts(
         counts,
       ),
     );
+
 
   const liuCounts =
     getLiuCounts(
@@ -1405,6 +1805,7 @@ function calculateFinalScore(
       liuCounts,
     );
 
+
   const parkCounts =
     getParkCounts(
       counts,
@@ -1415,6 +1816,7 @@ function calculateFinalScore(
       parkCounts,
     );
 
+
   const mainExtraRange =
     getRange(
       getMainExtraCounts(
@@ -1422,7 +1824,9 @@ function calculateFinalScore(
       ),
     );
 
+
   let mainJobSpread = 0;
+
 
   for (
     const job of JOBS
@@ -1433,9 +1837,11 @@ function calculateFinalScore(
           counts[worker][job],
       );
 
+
     mainJobSpread +=
       getRange(values);
   }
+
 
   const liuAverage =
     liuCounts.reduce(
@@ -1444,6 +1850,7 @@ function calculateFinalScore(
       0,
     ) /
     liuCounts.length;
+
 
   const liuVariance =
     liuCounts.reduce(
@@ -1457,6 +1864,7 @@ function calculateFinalScore(
       0,
     );
 
+
   const parkAverage =
     parkCounts.reduce(
       (sum, value) =>
@@ -1464,6 +1872,7 @@ function calculateFinalScore(
       0,
     ) /
     parkCounts.length;
+
 
   const parkVariance =
     parkCounts.reduce(
@@ -1477,10 +1886,12 @@ function calculateFinalScore(
       0,
     );
 
+
   const consecutive =
     calculateFullConsecutivePenalty(
       state.schedule,
     );
+
 
   return (
     bowlRange * 1000000000 +
@@ -1498,7 +1909,7 @@ function calculateFinalScore(
 
 /* =========================================================
  * 상태 서명
- * ======================================================= */
+ * ========================================================= */
 
 function createStateSignature(
   state,
@@ -1506,32 +1917,39 @@ function createStateSignature(
   const counts =
     state.counts;
 
+
   const bowl =
     getBowlCounts(
       counts,
     ).join(",");
+
 
   const helper =
     getBowlHelperCounts(
       counts,
     ).join(",");
 
+
   const liu =
     getLiuCounts(
       counts,
     ).join(",");
+
 
   const park =
     getParkCounts(
       counts,
     ).join(",");
 
+
   const main =
     getMainExtraCounts(
       counts,
     ).join(",");
 
+
   let last = "";
+
 
   if (
     state.lastAssignment
@@ -1545,6 +1963,7 @@ function createStateSignature(
       ).join(",");
   }
 
+
   return [
     bowl,
     helper,
@@ -1557,14 +1976,15 @@ function createStateSignature(
 
 
 /* =========================================================
- * 상태 가지치기
- * ======================================================= */
+ * 가지치기
+ * ========================================================= */
 
 function pruneStates(
   states,
 ) {
   const grouped =
     new Map();
+
 
   for (
     const state of states
@@ -1574,26 +1994,31 @@ function pruneStates(
         state,
       );
 
+
     const score =
       calculatePartialScore(
         state,
       );
+
 
     const group =
       grouped.get(
         signature,
       ) || [];
 
+
     group.push({
       state,
       score,
     });
+
 
     group.sort(
       (a, b) =>
         a.score -
         b.score,
     );
+
 
     if (
       group.length >
@@ -1603,13 +2028,16 @@ function pruneStates(
         MAX_STATES_PER_SIGNATURE;
     }
 
+
     grouped.set(
       signature,
       group,
     );
   }
 
+
   const flattened = [];
+
 
   for (
     const group of grouped.values()
@@ -1619,11 +2047,13 @@ function pruneStates(
     );
   }
 
+
   flattened.sort(
     (a, b) =>
       a.score -
       b.score,
   );
+
 
   return flattened
     .slice(
@@ -1652,15 +2082,15 @@ function addCandidateToState(
       candidate,
     );
 
-  const day = {
-    ...dateInfo,
-    ...candidate,
-  };
 
   return {
     schedule: [
       ...state.schedule,
-      day,
+
+      {
+        ...dateInfo,
+        ...candidate,
+      },
     ],
 
     counts,
@@ -1685,6 +2115,7 @@ function optimizeMonth(
   const dailyCandidates =
     generateDailyCandidates();
 
+
   if (
     dailyCandidates.length === 0
   ) {
@@ -1693,7 +2124,9 @@ function optimizeMonth(
     );
   }
 
+
   const dates = [];
+
 
   for (
     let day = startDay;
@@ -1709,6 +2142,7 @@ function optimizeMonth(
     );
   }
 
+
   let states = [
     {
       schedule: [],
@@ -1723,6 +2157,7 @@ function optimizeMonth(
     },
   ];
 
+
   for (
     let index = 0;
     index < dates.length;
@@ -1731,19 +2166,16 @@ function optimizeMonth(
     const dateInfo =
       dates[index];
 
+
     const nextStates = [];
 
-    const candidates =
-      shuffle(
-        dailyCandidates,
-      );
 
     for (
       const state of states
     ) {
       for (
-        const candidate
-          of candidates
+        const candidate of
+          dailyCandidates
       ) {
         nextStates.push(
           addCandidateToState(
@@ -1755,11 +2187,13 @@ function optimizeMonth(
       }
     }
 
+
     states =
       pruneStates(
         nextStates,
       );
   }
+
 
   states.sort(
     (a, b) =>
@@ -1767,19 +2201,21 @@ function optimizeMonth(
       calculateFinalScore(b),
   );
 
+
   return states[0].schedule;
 }
 
 
 /* =========================================================
  * 원래 배정 횟수
- * ======================================================= */
+ * ========================================================= */
 
 function calculateOriginalCounts(
   schedule,
 ) {
   const counts =
     createEmptyWorkerCounts();
+
 
   for (
     const day of schedule
@@ -1790,13 +2226,17 @@ function calculateOriginalCounts(
       const worker =
         day[job];
 
+
       if (!worker) {
         continue;
       }
 
-      counts[worker][job] += 1;
+
+      counts[worker][job] +=
+        1;
     }
   }
+
 
   return counts;
 }
@@ -1804,7 +2244,7 @@ function calculateOriginalCounts(
 
 /* =========================================================
  * 연차
- * ======================================================= */
+ * ========================================================= */
 
 function getLeaveWorkers(
   dateKey,
@@ -1831,6 +2271,7 @@ function setLeaveWorkers(
         ),
     );
 
+
   if (
     normalized.length === 0
   ) {
@@ -1843,1446 +2284,12 @@ function setLeaveWorkers(
     ] = normalized;
   }
 
-  saveLocalData();
-}
-
-
-/* =========================================================
- * 연차 반영
- * ======================================================= */
-
-function applyLeavesToSchedule(
-  originalSchedule,
-) {
-  const result = [];
-
-  for (
-    const originalDay
-      of originalSchedule
-  ) {
-    const dateKey =
-      formatDateKey(
-        originalDay.year,
-        originalDay.month,
-        originalDay.day,
-      );
-
-    const leaveWorkers =
-      getLeaveWorkers(
-        dateKey,
-      );
-
-    /*
-     * 연차가 없는 날
-     */
-    if (
-      leaveWorkers.length === 0
-    ) {
-      result.push({
-        ...originalDay,
-
-        leaveWorkers: [],
-
-        replacements: {},
-      });
-
-      continue;
-    }
-
-
-    const day = {
-      ...originalDay,
-
-      leaveWorkers:
-        leaveWorkers.slice(),
-
-      replacements: {},
-    };
-
-
-    /*
-     * 연차자의 원래 업무를 비운다.
-     */
-    const vacantJobs = [];
-
-    for (
-      const job of JOBS
-    ) {
-      const worker =
-        originalDay[job];
-
-      if (
-        leaveWorkers.includes(
-          worker,
-        )
-      ) {
-        delete day[job];
-
-        vacantJobs.push({
-          job,
-          originalWorker:
-            worker,
-        });
-      }
-    }
-
-
-    /*
-     * 출근자
-     */
-    const availableWorkers =
-      WORKERS.filter(
-        (worker) =>
-          !leaveWorkers.includes(
-            worker,
-          ),
-      );
-
-
-    /*
-     * 빈 업무를 대체
-     */
-    for (
-      const vacant of vacantJobs
-    ) {
-      const replacement =
-        chooseReplacementWorker(
-          availableWorkers,
-          vacant.job,
-          day,
-        );
-
-      if (!replacement) {
-        day.replacements[
-          vacant.job
-        ] = null;
-
-        continue;
-      }
-
-
-      /*
-       * 중복 업무가 발생할 수 있으므로
-       * 실제 결과에는 표시를 분명하게 남긴다.
-       */
-      day[vacant.job] =
-        replacement;
-
-      day.replacements[
-        vacant.job
-      ] = {
-        originalWorker:
-          vacant.originalWorker,
-
-        replacementWorker:
-          replacement,
-      };
-    }
-
-    result.push(day);
-  }
-
-  return result;
-}
-
-
-function chooseReplacementWorker(
-  availableWorkers,
-  job,
-  day,
-) {
-  const eligible =
-    availableWorkers.filter(
-      (worker) =>
-        isAllowed(
-          worker,
-          job,
-        ),
-    );
-
-  if (
-    eligible.length === 0
-  ) {
-    return null;
-  }
-
-  /*
-   * 우선 당일 아직 배정되지 않은 사람
-   */
-  const freeWorkers =
-    eligible.filter(
-      (worker) =>
-        !isWorkerAssignedOnDay(
-          day,
-          worker,
-        ),
-    );
-
-  const pool =
-    freeWorkers.length > 0
-      ? freeWorkers
-      : eligible;
-
-
-  /*
-   * 현재 저장된 누적값에서 해당 업무가
-   * 적은 사람 우선
-   */
-  let best =
-    null;
-
-  let bestScore =
-    Infinity;
-
-
-  for (
-    const worker of pool
-  ) {
-    const count =
-      appData.baseline[worker][job] +
-      getRecentHistoryJobCount(
-        worker,
-        job,
-      );
-
-    const score =
-      count * 100 +
-      (
-        isWorkerAssignedOnDay(
-          day,
-          worker,
-        )
-          ? 50
-          : 0
-      );
-
-
-    if (
-      score < bestScore
-    ) {
-      bestScore =
-        score;
-
-      best =
-        worker;
-    }
-  }
-
-  return best;
-}
-
-
-function isWorkerAssignedOnDay(
-  day,
-  worker,
-) {
-  for (
-    const job of JOBS
-  ) {
-    if (
-      day[job] === worker
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-
-function getRecentHistoryJobCount(
-  worker,
-  job,
-) {
-  let total = 0;
-
-  for (
-    const monthData of Object.values(
-      appData.history,
-    )
-  ) {
-    if (
-      !monthData ||
-      !monthData.originalCounts
-    ) {
-      continue;
-    }
-
-    total +=
-      Number(
-        monthData.originalCounts[
-          worker
-        ]?.[job] ?? 0,
-      );
-  }
-
-  return total;
-}
-
-
-/* =========================================================
- * 검증
- * ======================================================= */
-
-function validateOriginalSchedule(
-  schedule,
-) {
-  const errors = [];
-
-  for (
-    const day of schedule
-  ) {
-    const workers =
-      JOBS.map(
-        (job) =>
-          day[job],
-      );
-
-    if (
-      workers.some(
-        (worker) =>
-          !worker,
-      )
-    ) {
-      errors.push(
-        `${day.month}월 ${day.day}일: 미배정 업무`,
-      );
-
-      continue;
-    }
-
-    if (
-      new Set(
-        workers,
-      ).size !== 5
-    ) {
-      errors.push(
-        `${day.month}월 ${day.day}일: 작업자 중복`,
-      );
-    }
-
-    for (
-      const job of JOBS
-    ) {
-      const worker =
-        day[job];
-
-      if (
-        !isAllowed(
-          worker,
-          job,
-        )
-      ) {
-        errors.push(
-          `${day.month}월 ${day.day}일: ${worker} → ${job} 규칙 위반`,
-        );
-      }
-    }
-  }
-
-  return errors;
-}
-
-
-/* =========================================================
- * 텍스트 출력
- * ======================================================= */
-
-function formatScheduleAsText(
-  schedule,
-) {
-  if (
-    !schedule ||
-    schedule.length === 0
-  ) {
-    return "";
-  }
-
-  const first =
-    schedule[0];
-
-  const lines = [];
-
-  lines.push(
-    `${first.year}년 ${first.month}월 업무 배정표`,
-  );
-
-  lines.push("");
-
-
-  for (
-    const day of schedule
-  ) {
-    lines.push(
-      `### ${day.month}월 ${day.day}일`,
-    );
-
-
-    const leaveWorkers =
-      day.leaveWorkers || [];
-
-
-    for (
-      const worker of WORKERS
-    ) {
-      if (
-        leaveWorkers.includes(
-          worker,
-        )
-      ) {
-        const original =
-          currentOriginalSchedule.find(
-            (item) =>
-              item.year ===
-                day.year &&
-              item.month ===
-                day.month &&
-              item.day ===
-                day.day,
-          );
-
-
-        const originalJob =
-          original
-            ? getJobForWorker(
-                original,
-                worker,
-              )
-            : null;
-
-
-        lines.push(
-          `${worker} → 연차${
-            originalJob
-              ? ` (원래 ${originalJob})`
-              : ""
-          }`,
-        );
-
-        continue;
-      }
-
-
-      const job =
-        getJobForWorker(
-          day,
-          worker,
-        );
-
-
-      if (job) {
-        const replacement =
-          Object.values(
-            day.replacements ||
-              {},
-          ).find(
-            (item) =>
-              item &&
-              item.replacementWorker ===
-                worker,
-          );
-
-
-        if (
-          replacement
-        ) {
-          lines.push(
-            `${worker} → ${job} (연차 대체)`,
-          );
-        } else {
-          lines.push(
-            `${worker} → ${job}`,
-          );
-        }
-
-        continue;
-      }
-
-
-      lines.push(
-        `${worker} → 미배정`,
-      );
-    }
-
-
-    const replacementEntries =
-      Object.entries(
-        day.replacements ||
-          {},
-      );
-
-
-    if (
-      replacementEntries.length >
-      0
-    ) {
-      lines.push("");
-
-      lines.push(
-        "[연차 대체]",
-      );
-
-
-      for (
-        const [
-          job,
-          replacement,
-        ] of replacementEntries
-      ) {
-        if (!replacement) {
-          lines.push(
-            `${job}: 대체자 없음`,
-          );
-
-          continue;
-        }
-
-        lines.push(
-          `${job}: ${replacement.originalWorker} 연차 → ${replacement.replacementWorker}`,
-        );
-      }
-    }
-
-    lines.push("");
-  }
-
-  return lines.join("\n");
-}
-
-
-/* =========================================================
- * 화면 렌더링
- * ======================================================= */
-
-function renderSchedule() {
-  const result =
-    document.getElementById(
-      "resultText",
-    );
-
-  const status =
-    document.getElementById(
-      "statusText",
-    );
-
-  const errors =
-    validateOriginalSchedule(
-      currentOriginalSchedule,
-    );
-
-  copiedText =
-    formatScheduleAsText(
-      currentSchedule,
-    );
-
-  if (result) {
-    result.textContent =
-      copiedText;
-
-
-    if (
-      errors.length > 0
-    ) {
-      result.textContent +=
-        "\n\n[검증 오류]\n" +
-        errors.join("\n");
-    }
-  }
-
-
-  if (status) {
-    if (
-      errors.length === 0
-    ) {
-      status.textContent =
-        `${currentOriginalSchedule.length}일 생성 완료 · 월 전체 최적화 · 규칙 검증 통과`;
-
-      status.classList.add(
-        "success",
-      );
-    } else {
-      status.textContent =
-        `검증 오류 ${errors.length}건`;
-
-      status.classList.remove(
-        "success",
-      );
-    }
-  }
-
-
-  renderJobSummary();
-
-  renderWorkerSummary();
-
-  updateDataStatus();
-}
-
-
-/* =========================================================
- * 업무별 요약
- * ======================================================= */
-
-function renderJobSummary() {
-  const container =
-    document.getElementById(
-      "summaryContainer",
-    );
-
-  if (!container) {
-    return;
-  }
-
-  const counts =
-    createEmptyJobCounts();
-
-  /*
-   * 정상 원래 배정을 기준으로 계산
-   */
-  for (
-    const day of currentOriginalSchedule
-  ) {
-    for (
-      const job of JOBS
-    ) {
-      if (day[job]) {
-        counts[job] += 1;
-      }
-    }
-  }
-
-  container.innerHTML = "";
-
-
-  for (
-    const job of JOBS
-  ) {
-    const card =
-      document.createElement(
-        "div",
-      );
-
-    card.className =
-      "summary-card";
-
-
-    const label =
-      document.createElement(
-        "span",
-      );
-
-    label.className =
-      "label";
-
-    label.textContent =
-      job;
-
-
-    const value =
-      document.createElement(
-        "span",
-      );
-
-    value.className =
-      "value";
-
-    value.textContent =
-      `${counts[job]}회`;
-
-
-    card.appendChild(
-      label,
-    );
-
-    card.appendChild(
-      value,
-    );
-
-    container.appendChild(
-      card,
-    );
-  }
-}
-
-
-/* =========================================================
- * 빈 업무 요약
- * ======================================================= */
-
-function createEmptyJobCounts() {
-  const result = {};
-
-  for (
-    const job of JOBS
-  ) {
-    result[job] = 0;
-  }
-
-  return result;
-}
-
-
-/* =========================================================
- * 작업자 요약
- * ======================================================= */
-
-function renderWorkerSummary() {
-  const container =
-    document.getElementById(
-      "workerSummaryContainer",
-    );
-
-  if (!container) {
-    return;
-  }
-
-  const counts =
-    calculateOriginalCounts(
-      currentOriginalSchedule,
-    );
-
-
-  const wrapper =
-    document.createElement(
-      "div",
-    );
-
-  wrapper.className =
-    "worker-table-wrap";
-
-
-  const table =
-    document.createElement(
-      "table",
-    );
-
-  table.className =
-    "worker-table";
-
-
-  const thead =
-    document.createElement(
-      "thead",
-    );
-
-
-  const header =
-    document.createElement(
-      "tr",
-    );
-
-
-  const headers = [
-    "작업자",
-    "볼분리",
-    "볼분리 보조",
-    "설거지",
-    "분쇄",
-    "성형",
-    "총합",
-  ];
-
-
-  for (
-    const title of headers
-  ) {
-    const th =
-      document.createElement(
-        "th",
-      );
-
-    th.textContent =
-      title;
-
-    header.appendChild(
-      th,
-    );
-  }
-
-
-  thead.appendChild(
-    header,
-  );
-
-
-  const tbody =
-    document.createElement(
-      "tbody",
-    );
-
-
-  for (
-    const worker of WORKERS
-  ) {
-    const row =
-      document.createElement(
-        "tr",
-      );
-
-
-    const values = [
-      worker,
-
-      counts[worker][
-        "볼분리"
-      ],
-
-      counts[worker][
-        "볼분리 보조"
-      ],
-
-      counts[worker][
-        "설거지 및 성형보조"
-      ],
-
-      counts[worker][
-        "분쇄 및 성형보조"
-      ],
-
-      counts[worker][
-        "성형 및 분쇄보조"
-      ],
-    ];
-
-
-    let total = 0;
-
-
-    for (
-      let index = 1;
-      index < values.length;
-      index += 1
-    ) {
-      total +=
-        values[index];
-    }
-
-
-    values.push(
-      total,
-    );
-
-
-    for (
-      let index = 0;
-      index < values.length;
-      index += 1
-    ) {
-      const cell =
-        document.createElement(
-          "td",
-        );
-
-
-      if (
-        index ===
-        values.length - 1
-      ) {
-        const strong =
-          document.createElement(
-            "strong",
-          );
-
-        strong.textContent =
-          String(
-            values[index],
-          );
-
-        cell.appendChild(
-          strong,
-        );
-      } else {
-        cell.textContent =
-          String(
-            values[index],
-          );
-      }
-
-
-      row.appendChild(
-        cell,
-      );
-    }
-
-
-    tbody.appendChild(
-      row,
-    );
-  }
-
-
-  table.appendChild(
-    thead,
-  );
-
-  table.appendChild(
-    tbody,
-  );
-
-
-  wrapper.appendChild(
-    table,
-  );
-
-
-  container.innerHTML = "";
-
-  container.appendChild(
-    wrapper,
-  );
-}
-
-
-/* =========================================================
- * 연차 목록
- * ======================================================= */
-
-function renderLeaveList() {
-  const container =
-    document.getElementById(
-      "leaveList",
-    );
-
-  if (!container) {
-    return;
-  }
-
-  const entries =
-    Object.entries(
-      appData.leave,
-    ).sort(
-      (a, b) =>
-        a[0].localeCompare(
-          b[0],
-        ),
-    );
-
-
-  if (
-    entries.length === 0
-  ) {
-    container.innerHTML = `
-      <div class="empty-state">
-        등록된 연차가 없습니다.
-      </div>
-    `;
-
-    return;
-  }
-
-
-  container.innerHTML = "";
-
-
-  for (
-    const [
-      dateKey,
-      workers,
-    ] of entries
-  ) {
-    const item =
-      document.createElement(
-        "div",
-      );
-
-    item.className =
-      "leave-item";
-
-
-    const main =
-      document.createElement(
-        "div",
-      );
-
-    main.className =
-      "leave-item-main";
-
-
-    const date =
-      document.createElement(
-        "div",
-      );
-
-    date.className =
-      "leave-date";
-
-    date.textContent =
-      formatDisplayDate(
-        dateKey,
-      );
-
-
-    const workersText =
-      document.createElement(
-        "div",
-      );
-
-    workersText.className =
-      "leave-workers";
-
-    workersText.textContent =
-      workers.join(
-        " · ",
-      );
-
-
-    main.appendChild(
-      date,
-    );
-
-    main.appendChild(
-      workersText,
-    );
-
-
-    const deleteButton =
-      document.createElement(
-        "button",
-      );
-
-    deleteButton.type =
-      "button";
-
-    deleteButton.className =
-      "leave-delete-button";
-
-    deleteButton.textContent =
-      "삭제";
-
-
-    deleteButton.addEventListener(
-      "click",
-      () => {
-        delete appData.leave[
-          dateKey
-        ];
-
-        saveLocalData();
-
-        renderLeaveList();
-      },
-    );
-
-
-    item.appendChild(
-      main,
-    );
-
-    item.appendChild(
-      deleteButton,
-    );
-
-
-    container.appendChild(
-      item,
-    );
-  }
-}
-
-
-function formatDisplayDate(
-  dateKey,
-) {
-  const date =
-    new Date(
-      `${dateKey}T00:00:00`,
-    );
-
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return dateKey;
-  }
-
-
-  return `${date.getFullYear()}년 ${
-    date.getMonth() + 1
-  }월 ${date.getDate()}일 (${
-    getWeekdayName(
-      date.getDay(),
-    )
-  })`;
-}
-
-
-/* =========================================================
- * 요약
- * ======================================================= */
-
-function getWorkerGrandTotal(
-  counts,
-  worker,
-) {
-  let total = 0;
-
-  for (
-    const job of JOBS
-  ) {
-    total +=
-      counts[worker][job];
-  }
-
-  return total;
-}
-
-
-/* =========================================================
- * 연차 저장
- * ======================================================= */
-
-function handleSaveLeave() {
-  const input =
-    document.getElementById(
-      "leaveDateInput",
-    );
-
-  if (
-    !input ||
-    !input.value
-  ) {
-    alert(
-      "연차 날짜를 선택해주세요.",
-    );
-
-    return;
-  }
-
-
-  const workers =
-    [
-      ...document.querySelectorAll(
-        "[data-leave-worker]:checked",
-      ),
-    ].map(
-      (element) =>
-        element.value,
-    );
-
-
-  if (
-    workers.length === 0
-  ) {
-    alert(
-      "연차자를 한 명 이상 선택해주세요.",
-    );
-
-    return;
-  }
-
-
-  setLeaveWorkers(
-    input.value,
-    workers,
-  );
-
-
-  renderLeaveList();
-
-
-  input.value = "";
-
-
-  document
-    .querySelectorAll(
-      "[data-leave-worker]",
-    )
-    .forEach(
-      (checkbox) => {
-        checkbox.checked =
-          false;
-      },
-    );
-}
-
-
-function handleClearLeaves() {
-  const confirmed =
-    window.confirm(
-      "등록된 연차를 모두 삭제할까요?",
-    );
-
-  if (!confirmed) {
-    return;
-  }
-
-
-  appData.leave = {};
 
   saveLocalData();
 
   renderLeaveList();
 }
 
-
-/* =========================================================
- * 자동 배정
- * ======================================================= */
-
-function handleGenerate() {
-  let inputs;
-
-  try {
-    inputs =
-      readDateInputs();
-  } catch (error) {
-    alert(
-      error instanceof Error
-        ? error.message
-        : "입력값을 확인해주세요.",
-    );
-
-    return;
-  }
-
-
-  const status =
-    document.getElementById(
-      "statusText",
-    );
-
-
-  if (status) {
-    status.textContent =
-      "월 전체 최적화 중...";
-
-    status.classList.remove(
-      "success",
-    );
-  }
-
-
-  window.setTimeout(
-    () => {
-      try {
-        const {
-          year,
-          month,
-          startDay,
-          endDay,
-        } = inputs;
-
-
-        cleanupOldHistory(
-          year,
-          month,
-        );
-
-
-        const startingCounts =
-          getStartingCounts(
-            year,
-            month,
-          );
-
-
-        /*
-         * 정상 근무 기준 월 전체 최적화
-         */
-        const originalSchedule =
-          optimizeMonth(
-            year,
-            month,
-            startDay,
-            endDay,
-            startingCounts,
-          );
-
-
-        currentOriginalSchedule =
-          originalSchedule;
-
-
-        currentOriginalCounts =
-          calculateOriginalCounts(
-            originalSchedule,
-          );
-
-
-        /*
-         * 연차 반영
-         */
-        currentSchedule =
-          applyLeavesToSchedule(
-            originalSchedule,
-          );
-
-
-        /*
-         * 기록 저장
-         */
-        const key =
-          getMonthKey(
-            year,
-            month,
-          );
-
-
-        appData.history[key] =
-          {
-            schedule:
-              originalSchedule,
-
-            originalCounts:
-              currentOriginalCounts,
-
-            leave:
-              getLeaveMapForMonth(
-                year,
-                month,
-              ),
-          };
-
-
-        saveLocalData();
-
-
-        cleanupOldHistory(
-          year,
-          month,
-        );
-
-
-        renderSchedule();
-      } catch (error) {
-        console.error(
-          error,
-        );
-
-
-        if (status) {
-          status.textContent =
-            "배정 실패";
-
-          status.classList.remove(
-            "success",
-          );
-        }
-
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : "배정표 생성 중 오류가 발생했습니다.",
-        );
-      }
-    },
-    20,
-  );
-}
-
-
-/* =========================================================
- * 날짜 입력
- * ======================================================= */
-
-function readDateInputs() {
-  const year =
-    Number(
-      document.getElementById(
-        "yearInput",
-      ).value,
-    );
-
-
-  const month =
-    Number(
-      document.getElementById(
-        "monthInput",
-      ).value,
-    );
-
-
-  const startDay =
-    Number(
-      document.getElementById(
-        "startDayInput",
-      ).value,
-    );
-
-
-  const endDay =
-    Number(
-      document.getElementById(
-        "endDayInput",
-      ).value,
-    );
-
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(startDay) ||
-    !Number.isInteger(endDay)
-  ) {
-    throw new Error(
-      "연도, 월, 시작일, 종료일을 확인해주세요.",
-    );
-  }
-
-
-  if (
-    month < 1 ||
-    month > 12
-  ) {
-    throw new Error(
-      "월은 1~12 사이여야 합니다.",
-    );
-  }
-
-
-  const daysInMonth =
-    new Date(
-      year,
-      month,
-      0,
-    ).getDate();
-
-
-  if (
-    startDay < 1 ||
-    startDay >
-      daysInMonth
-  ) {
-    throw new Error(
-      "시작일이 올바르지 않습니다.",
-    );
-  }
-
-
-  if (
-    endDay < 1 ||
-    endDay >
-      daysInMonth
-  ) {
-    throw new Error(
-      "종료일이 올바르지 않습니다.",
-    );
-  }
-
-
-  if (
-    startDay > endDay
-  ) {
-    throw new Error(
-      "시작일은 종료일보다 클 수 없습니다.",
-    );
-  }
-
-
-  return {
-    year,
-    month,
-    startDay,
-    endDay,
-  };
-}
-
-
-/* =========================================================
- * 월 연차
- * ======================================================= */
 
 function getLeaveMapForMonth(
   year,
@@ -3322,18 +2329,1376 @@ function getLeaveMapForMonth(
 
 
 /* =========================================================
- * 데이터 내보내기
- * ======================================================= */
+ * 연차를 실제 화면 배정에 반영
+ *
+ * 원래 배정은 누적 횟수에 반영.
+ * 실제 화면에서는 연차자를 제외하고
+ * 비는 업무를 대체자에게 맡긴다.
+ * ========================================================= */
+
+function applyLeavesToSchedule(
+  originalSchedule,
+) {
+  const result = [];
+
+
+  for (
+    const originalDay
+      of originalSchedule
+  ) {
+    const dateKey =
+      formatDateKey(
+        originalDay.year,
+        originalDay.month,
+        originalDay.day,
+      );
+
+
+    const leaveWorkers =
+      getLeaveWorkers(
+        dateKey,
+      );
+
+
+    if (
+      leaveWorkers.length === 0
+    ) {
+      result.push({
+        ...originalDay,
+
+        leaveWorkers: [],
+
+        replacements: {},
+      });
+
+      continue;
+    }
+
+
+    const day = {
+      ...originalDay,
+
+      leaveWorkers:
+        leaveWorkers.slice(),
+
+      replacements: {},
+    };
+
+
+    const vacantJobs = [];
+
+
+    for (
+      const job of JOBS
+    ) {
+      const worker =
+        originalDay[job];
+
+
+      if (
+        leaveWorkers.includes(
+          worker,
+        )
+      ) {
+        delete day[job];
+
+
+        vacantJobs.push({
+          job,
+
+          originalWorker:
+            worker,
+        });
+      }
+    }
+
+
+    const availableWorkers =
+      WORKERS.filter(
+        (worker) =>
+          !leaveWorkers.includes(
+            worker,
+          ),
+      );
+
+
+    /*
+     * 대체 업무 우선순위
+     *
+     * 1. 해당 업무가 가능한 사람
+     * 2. 당일 아직 업무가 없는 사람
+     * 3. 누적 횟수가 적은 사람
+     */
+    for (
+      const vacant of vacantJobs
+    ) {
+      const replacement =
+        chooseReplacementWorker(
+          availableWorkers,
+          vacant.job,
+          day,
+        );
+
+
+      if (!replacement) {
+        day.replacements[
+          vacant.job
+        ] = null;
+
+        continue;
+      }
+
+
+      day[vacant.job] =
+        replacement;
+
+
+      day.replacements[
+        vacant.job
+      ] = {
+        originalWorker:
+          vacant.originalWorker,
+
+        replacementWorker:
+          replacement,
+      };
+    }
+
+
+    result.push(
+      day,
+    );
+  }
+
+
+  return result;
+}
+
+
+function chooseReplacementWorker(
+  availableWorkers,
+  job,
+  day,
+) {
+  const eligible =
+    availableWorkers.filter(
+      (worker) =>
+        isAllowed(
+          worker,
+          job,
+        ),
+    );
+
+
+  if (
+    eligible.length === 0
+  ) {
+    return null;
+  }
+
+
+  const freeWorkers =
+    eligible.filter(
+      (worker) =>
+        !isWorkerAssignedOnDay(
+          day,
+          worker,
+        ),
+    );
+
+
+  const pool =
+    freeWorkers.length >
+    0
+      ? freeWorkers
+      : eligible;
+
+
+  const startingCounts =
+    getStartingCounts(
+      Number(
+        document.getElementById(
+          "yearInput",
+        ).value,
+      ),
+      Number(
+        document.getElementById(
+          "monthInput",
+        ).value,
+      ),
+    );
+
+
+  let bestWorker = null;
+
+  let bestScore =
+    Infinity;
+
+
+  for (
+    const worker of pool
+  ) {
+    const count =
+      startingCounts[worker][job] +
+      getCurrentOriginalJobCount(
+        worker,
+        job,
+      );
+
+
+    const alreadyAssigned =
+      isWorkerAssignedOnDay(
+        day,
+        worker,
+      );
+
+
+    const score =
+      count * 100 +
+      (
+        alreadyAssigned
+          ? 50
+          : 0
+      );
+
+
+    if (
+      score <
+      bestScore
+    ) {
+      bestScore =
+        score;
+
+      bestWorker =
+        worker;
+    }
+  }
+
+
+  return bestWorker;
+}
+
+
+function getCurrentOriginalJobCount(
+  worker,
+  job,
+) {
+  if (
+    !currentOriginalCounts
+  ) {
+    return 0;
+  }
+
+
+  return (
+    currentOriginalCounts[
+      worker
+    ]?.[job] ?? 0
+  );
+}
+
+
+function isWorkerAssignedOnDay(
+  day,
+  worker,
+) {
+  for (
+    const job of JOBS
+  ) {
+    if (
+      day[job] === worker
+    ) {
+      return true;
+    }
+  }
+
+
+  return false;
+}
+
+
+/* =========================================================
+ * 검증
+ * ========================================================= */
+
+function validateOriginalSchedule(
+  schedule,
+) {
+  const errors = [];
+
+
+  for (
+    const day of schedule
+  ) {
+    const workers =
+      JOBS.map(
+        (job) =>
+          day[job],
+      );
+
+
+    if (
+      workers.some(
+        (worker) =>
+          !worker,
+      )
+    ) {
+      errors.push(
+        `${day.month}월 ${day.day}일: 미배정 업무가 있습니다.`,
+      );
+
+      continue;
+    }
+
+
+    if (
+      new Set(
+        workers,
+      ).size !==
+      WORKERS.length
+    ) {
+      errors.push(
+        `${day.month}월 ${day.day}일: 작업자가 중복되었습니다.`,
+      );
+    }
+
+
+    for (
+      const job of JOBS
+    ) {
+      if (
+        !isAllowed(
+          day[job],
+          job,
+        )
+      ) {
+        errors.push(
+          `${day.month}월 ${day.day}일: ${day[job]} → ${job} 규칙 위반`,
+        );
+      }
+    }
+  }
+
+
+  return errors;
+}
+
+
+/* =========================================================
+ * 텍스트
+ * ========================================================= */
+
+function formatScheduleAsText(
+  schedule,
+) {
+  if (
+    !schedule ||
+    schedule.length === 0
+  ) {
+    return "";
+  }
+
+
+  const first =
+    schedule[0];
+
+
+  const lines = [];
+
+
+  lines.push(
+    `${first.year}년 ${first.month}월 업무 배정표`,
+  );
+
+
+  lines.push("");
+
+
+  for (
+    const day of schedule
+  ) {
+    lines.push(
+      `### ${day.month}월 ${day.day}일`,
+    );
+
+
+    const leaveWorkers =
+      day.leaveWorkers ||
+      [];
+
+
+    const originalDay =
+      currentOriginalSchedule.find(
+        (item) =>
+          item.year ===
+            day.year &&
+          item.month ===
+            day.month &&
+          item.day ===
+            day.day,
+      );
+
+
+    for (
+      const worker of WORKERS
+    ) {
+      if (
+        leaveWorkers.includes(
+          worker,
+        )
+      ) {
+        const originalJob =
+          originalDay
+            ? getJobForWorker(
+                originalDay,
+                worker,
+              )
+            : null;
+
+
+        lines.push(
+          `${worker} → 연차${
+            originalJob
+              ? ` (원래 ${originalJob})`
+              : ""
+          }`,
+        );
+
+        continue;
+      }
+
+
+      const job =
+        getJobForWorker(
+          day,
+          worker,
+        );
+
+
+      if (!job) {
+        lines.push(
+          `${worker} → 미배정`,
+        );
+
+        continue;
+      }
+
+
+      const replacement =
+        Object.values(
+          day.replacements ||
+            {},
+        ).find(
+          (item) =>
+            item &&
+            item.replacementWorker ===
+              worker,
+        );
+
+
+      if (
+        replacement
+      ) {
+        lines.push(
+          `${worker} → ${job} (연차 대체)`,
+        );
+      } else {
+        lines.push(
+          `${worker} → ${job}`,
+        );
+      }
+    }
+
+
+    const replacementEntries =
+      Object.entries(
+        day.replacements ||
+          {},
+      );
+
+
+    if (
+      replacementEntries.length >
+      0
+    ) {
+      lines.push("");
+
+      lines.push(
+        "[연차 대체]",
+      );
+
+
+      for (
+        const [
+          job,
+          replacement,
+        ] of replacementEntries
+      ) {
+        if (!replacement) {
+          lines.push(
+            `${job}: 대체자 없음`,
+          );
+
+          continue;
+        }
+
+
+        lines.push(
+          `${job}: ${replacement.originalWorker} 연차 → ${replacement.replacementWorker}`,
+        );
+      }
+    }
+
+
+    lines.push("");
+  }
+
+
+  return lines.join("\n");
+}
+
+
+/* =========================================================
+ * 업무별 요약
+ * ========================================================= */
+
+function renderJobSummary() {
+  const container =
+    document.getElementById(
+      "summaryContainer",
+    );
+
+
+  if (!container) {
+    return;
+  }
+
+
+  const counts =
+    createEmptyJobCounts();
+
+
+  for (
+    const day of currentOriginalSchedule
+  ) {
+    for (
+      const job of JOBS
+    ) {
+      if (day[job]) {
+        counts[job] +=
+          1;
+      }
+    }
+  }
+
+
+  container.innerHTML = "";
+
+
+  for (
+    const job of JOBS
+  ) {
+    const card =
+      document.createElement(
+        "div",
+      );
+
+
+    card.className =
+      "summary-card";
+
+
+    const label =
+      document.createElement(
+        "span",
+      );
+
+
+    label.className =
+      "label";
+
+
+    label.textContent =
+      job;
+
+
+    const value =
+      document.createElement(
+        "span",
+      );
+
+
+    value.className =
+      "value";
+
+
+    value.textContent =
+      `${counts[job]}회`;
+
+
+    card.appendChild(
+      label,
+    );
+
+
+    card.appendChild(
+      value,
+    );
+
+
+    container.appendChild(
+      card,
+    );
+  }
+}
+
+
+/* =========================================================
+ * 빈 업무 카운트
+ * ========================================================= */
+
+function createEmptyJobCounts() {
+  const result = {};
+
+  for (
+    const job of JOBS
+  ) {
+    result[job] = 0;
+  }
+
+  return result;
+}
+
+
+/* =========================================================
+ * 작업자별 요약
+ * ========================================================= */
+
+function renderWorkerSummary() {
+  const container =
+    document.getElementById(
+      "workerSummaryContainer",
+    );
+
+
+  if (!container) {
+    return;
+  }
+
+
+  const counts =
+    calculateOriginalCounts(
+      currentOriginalSchedule,
+    );
+
+
+  const wrapper =
+    document.createElement(
+      "div",
+    );
+
+
+  wrapper.className =
+    "worker-table-wrap";
+
+
+  const table =
+    document.createElement(
+      "table",
+    );
+
+
+  table.className =
+    "worker-table";
+
+
+  const thead =
+    document.createElement(
+      "thead",
+    );
+
+
+  const headerRow =
+    document.createElement(
+      "tr",
+    );
+
+
+  const headers = [
+    "작업자",
+    "볼분리",
+    "볼분리 보조",
+    "설거지",
+    "분쇄",
+    "성형",
+    "총합",
+  ];
+
+
+  for (
+    const header of headers
+  ) {
+    const th =
+      document.createElement(
+        "th",
+      );
+
+
+    th.textContent =
+      header;
+
+
+    headerRow.appendChild(
+      th,
+    );
+  }
+
+
+  thead.appendChild(
+    headerRow,
+  );
+
+
+  const tbody =
+    document.createElement(
+      "tbody",
+    );
+
+
+  for (
+    const worker of WORKERS
+  ) {
+    const row =
+      document.createElement(
+        "tr",
+      );
+
+
+    let total = 0;
+
+
+    const values = [
+      worker,
+
+      counts[worker][
+        "볼분리"
+      ],
+
+      counts[worker][
+        "볼분리 보조"
+      ],
+
+      counts[worker][
+        "설거지 및 성형보조"
+      ],
+
+      counts[worker][
+        "분쇄 및 성형보조"
+      ],
+
+      counts[worker][
+        "성형 및 분쇄보조"
+      ],
+    ];
+
+
+    for (
+      let i = 1;
+      i < values.length;
+      i += 1
+    ) {
+      total +=
+        values[i];
+    }
+
+
+    values.push(
+      total,
+    );
+
+
+    for (
+      let i = 0;
+      i < values.length;
+      i += 1
+    ) {
+      const td =
+        document.createElement(
+          "td",
+        );
+
+
+      if (
+        i ===
+        values.length - 1
+      ) {
+        const strong =
+          document.createElement(
+            "strong",
+          );
+
+
+        strong.textContent =
+          String(
+            values[i],
+          );
+
+
+        td.appendChild(
+          strong,
+        );
+      } else {
+        td.textContent =
+          String(
+            values[i],
+          );
+      }
+
+
+      row.appendChild(
+        td,
+      );
+    }
+
+
+    tbody.appendChild(
+      row,
+    );
+  }
+
+
+  table.appendChild(
+    thead,
+  );
+
+
+  table.appendChild(
+    tbody,
+  );
+
+
+  wrapper.appendChild(
+    table,
+  );
+
+
+  container.innerHTML =
+    "";
+
+
+  container.appendChild(
+    wrapper,
+  );
+}
+
+
+/* =========================================================
+ * 연차 목록
+ * ========================================================= */
+
+function renderLeaveList() {
+  const container =
+    document.getElementById(
+      "leaveList",
+    );
+
+
+  if (!container) {
+    return;
+  }
+
+
+  const entries =
+    Object.entries(
+      appData.leave,
+    ).sort(
+      (a, b) =>
+        a[0].localeCompare(
+          b[0],
+        ),
+    );
+
+
+  if (
+    entries.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="empty-state">
+        등록된 연차가 없습니다.
+      </div>
+    `;
+
+
+    return;
+  }
+
+
+  container.innerHTML =
+    "";
+
+
+  for (
+    const [
+      dateKey,
+      workers,
+    ] of entries
+  ) {
+    const item =
+      document.createElement(
+        "div",
+      );
+
+
+    item.className =
+      "leave-item";
+
+
+    const main =
+      document.createElement(
+        "div",
+      );
+
+
+    main.className =
+      "leave-item-main";
+
+
+    const date =
+      document.createElement(
+        "div",
+      );
+
+
+    date.className =
+      "leave-date";
+
+
+    date.textContent =
+      formatDisplayDate(
+        dateKey,
+      );
+
+
+    const workerText =
+      document.createElement(
+        "div",
+      );
+
+
+    workerText.className =
+      "leave-workers";
+
+
+    workerText.textContent =
+      workers.join(
+        " · ",
+      );
+
+
+    main.appendChild(
+      date,
+    );
+
+
+    main.appendChild(
+      workerText,
+    );
+
+
+    const deleteButton =
+      document.createElement(
+        "button",
+      );
+
+
+    deleteButton.type =
+      "button";
+
+
+    deleteButton.className =
+      "leave-delete-button";
+
+
+    deleteButton.textContent =
+      "삭제";
+
+
+    deleteButton.addEventListener(
+      "click",
+      () => {
+        delete appData.leave[
+          dateKey
+        ];
+
+        saveLocalData();
+
+        renderLeaveList();
+      },
+    );
+
+
+    item.appendChild(
+      main,
+    );
+
+
+    item.appendChild(
+      deleteButton,
+    );
+
+
+    container.appendChild(
+      item,
+    );
+  }
+}
+
+
+function formatDisplayDate(
+  dateKey,
+) {
+  const date =
+    new Date(
+      `${dateKey}T00:00:00`,
+    );
+
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return dateKey;
+  }
+
+
+  return `${date.getFullYear()}년 ${
+    date.getMonth() + 1
+  }월 ${date.getDate()}일 (${
+    getWeekdayName(
+      date.getDay(),
+    )
+  })`;
+}
+
+
+/* =========================================================
+ * 데이터 상태
+ * ========================================================= */
+
+function updateDataStatus() {
+  const element =
+    document.getElementById(
+      "dataStatus",
+    );
+
+
+  if (!element) {
+    return;
+  }
+
+
+  const historyCount =
+    Object.keys(
+      appData.history,
+    ).length;
+
+
+  let baselineTotal = 0;
+
+
+  for (
+    const worker of WORKERS
+  ) {
+    for (
+      const job of JOBS
+    ) {
+      baselineTotal +=
+        appData.baseline[
+          worker
+        ][job];
+    }
+  }
+
+
+  if (
+    historyCount === 0 &&
+    baselineTotal === 0
+  ) {
+    element.textContent =
+      "누적 데이터 없음";
+
+    return;
+  }
+
+
+  element.textContent =
+    `상세 기록 ${historyCount}개월 · 압축 누적 ${baselineTotal}건`;
+}
+
+
+/* =========================================================
+ * 현재 월 저장 데이터 만들기
+ * ========================================================= */
+
+function getCurrentDataPayload() {
+  return {
+    version:
+      DATA_VERSION,
+
+    retentionMonths:
+      RETENTION_MONTHS,
+
+    baseline:
+      deepClone(
+        appData.baseline,
+      ),
+
+    history:
+      deepClone(
+        appData.history,
+      ),
+
+    leave:
+      deepClone(
+        appData.leave,
+      ),
+  };
+}
+
+
+/* =========================================================
+ * JSON 복사
+ * ========================================================= */
+
+async function copyJsonToClipboard() {
+  const payload =
+    getCurrentDataPayload();
+
+
+  const json =
+    JSON.stringify(
+      payload,
+      null,
+      2,
+    );
+
+
+  try {
+    await navigator.clipboard.writeText(
+      json,
+    );
+
+
+    return true;
+  } catch (error) {
+    console.error(
+      "JSON 복사 실패:",
+      error,
+    );
+
+
+    const textarea =
+      document.createElement(
+        "textarea",
+      );
+
+
+    textarea.value =
+      json;
+
+
+    textarea.style.position =
+      "fixed";
+
+
+    textarea.style.left =
+      "-9999px";
+
+
+    document.body.appendChild(
+      textarea,
+    );
+
+
+    textarea.focus();
+
+    textarea.select();
+
+
+    try {
+      document.execCommand(
+        "copy",
+      );
+
+
+      textarea.remove();
+
+      return true;
+    } catch (
+      copyError
+    ) {
+      console.error(
+        copyError,
+      );
+
+
+      textarea.remove();
+
+      return false;
+    }
+  }
+}
+
+
+async function handleCopyJson() {
+  const copied =
+    await copyJsonToClipboard();
+
+
+  const status =
+    document.getElementById(
+      "githubSaveStatus",
+    );
+
+
+  if (copied) {
+    if (status) {
+      status.textContent =
+        "현재 history.json 내용이 클립보드에 복사되었습니다.";
+
+      status.classList.add(
+        "success",
+      );
+    }
+
+
+    alert(
+      "JSON이 복사되었습니다.",
+    );
+  } else {
+    if (status) {
+      status.textContent =
+        "JSON 복사에 실패했습니다.";
+
+      status.classList.remove(
+        "success",
+      );
+    }
+
+
+    alert(
+      "JSON 복사에 실패했습니다.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * GitHub 저장 준비
+ * ========================================================= */
+
+async function handlePrepareGithub() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+
+    const copied =
+      await copyJsonToClipboard();
+
+
+    const editUrl =
+      getGithubEditUrl();
+
+
+    if (!editUrl) {
+      throw new Error(
+        "GitHub 편집 URL을 만들 수 없습니다.",
+      );
+    }
+
+
+    window.open(
+      editUrl,
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+
+    const status =
+      document.getElementById(
+        "githubSaveStatus",
+      );
+
+
+    if (status) {
+      status.textContent =
+        copied
+          ? "JSON을 클립보드에 복사했고 GitHub 편집 화면을 열었습니다.\nGitHub의 history.json 전체 내용을 붙여넣은 뒤 Commit changes를 누르세요."
+          : "GitHub 편집 화면을 열었습니다.\nJSON 복사는 실패했으므로 앱의 'JSON 복사' 버튼으로 다시 복사해주세요.";
+
+      status.classList.add(
+        "success",
+      );
+    }
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 저장 준비에 실패했습니다.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * GitHub 편집 화면
+ * ========================================================= */
+
+function handleOpenGithubEdit() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+
+    const editUrl =
+      getGithubEditUrl();
+
+
+    if (!editUrl) {
+      throw new Error(
+        "GitHub 편집 URL을 만들 수 없습니다.",
+      );
+    }
+
+
+    window.open(
+      editUrl,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 편집 화면을 열 수 없습니다.",
+    );
+  }
+}
+
+
+/* =========================================================
+ * JSON 파일 백업
+ * ========================================================= */
 
 function handleExport() {
-  const payload = {
-    ...deepClone(
-      appData,
-    ),
-
-    exportedAt:
-      new Date().toISOString(),
-  };
+  const payload =
+    getCurrentDataPayload();
 
 
   const json =
@@ -3417,8 +3782,8 @@ function getFileDateString() {
 
 
 /* =========================================================
- * 데이터 복원
- * ======================================================= */
+ * JSON 복원
+ * ========================================================= */
 
 function handleImport(
   event,
@@ -3453,6 +3818,7 @@ function handleImport(
 
         saveLocalData();
 
+
         renderLeaveList();
 
         updateDataStatus();
@@ -3468,7 +3834,7 @@ function handleImport(
 
 
         alert(
-          "올바른 JSON 백업 파일이 아닙니다.",
+          "올바른 JSON 데이터가 아닙니다.",
         );
       } finally {
         event.target.value =
@@ -3497,7 +3863,7 @@ function handleImport(
 
 /* =========================================================
  * 전체 데이터 삭제
- * ======================================================= */
+ * ========================================================= */
 
 function handleClearData() {
   const confirmed =
@@ -3513,7 +3879,7 @@ function handleClearData() {
 
   const second =
     window.confirm(
-      "정말 전체 데이터를 삭제하시겠습니까?",
+      "정말 전체 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
     );
 
 
@@ -3539,7 +3905,6 @@ function handleClearData() {
 
 
   renderLeaveList();
-
 
   renderEmptySummaries();
 
@@ -3578,7 +3943,7 @@ function handleClearData() {
 
 /* =========================================================
  * 빈 요약
- * ======================================================= */
+ * ========================================================= */
 
 function renderEmptySummaries() {
   const summary =
@@ -3613,148 +3978,272 @@ function renderEmptySummaries() {
 
 
 /* =========================================================
- * 데이터 상태
- * ======================================================= */
+ * 자동 배정
+ * ========================================================= */
 
-function updateDataStatus() {
-  const element =
-    document.getElementById(
-      "dataStatus",
+function handleGenerate() {
+  let inputs;
+
+
+  try {
+    inputs =
+      readDateInputs();
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "입력값을 확인해주세요.",
     );
 
-
-  if (!element) {
     return;
   }
 
 
-  const historyCount =
-    Object.keys(
-      appData.history,
-    ).length;
+  const status =
+    document.getElementById(
+      "statusText",
+    );
 
 
-  let baselineTotal =
-    0;
+  if (status) {
+    status.textContent =
+      "월 전체 최적화 중...";
+
+    status.classList.remove(
+      "success",
+    );
+  }
 
 
-  for (
-    const worker of WORKERS
+  window.setTimeout(
+    () => {
+      try {
+        const {
+          year,
+          month,
+          startDay,
+          endDay,
+        } = inputs;
+
+
+        cleanupOldHistory(
+          year,
+          month,
+        );
+
+
+        const startingCounts =
+          getStartingCounts(
+            year,
+            month,
+          );
+
+
+        const originalSchedule =
+          optimizeMonth(
+            year,
+            month,
+            startDay,
+            endDay,
+            startingCounts,
+          );
+
+
+        currentOriginalSchedule =
+          originalSchedule;
+
+
+        currentOriginalCounts =
+          calculateOriginalCounts(
+            originalSchedule,
+          );
+
+
+        /*
+         * 연차를 반영한 실제 화면
+         */
+        currentSchedule =
+          applyLeavesToSchedule(
+            originalSchedule,
+          );
+
+
+        /*
+         * 상세 기록은 원래 정상 배정을 저장
+         */
+        const key =
+          getMonthKey(
+            year,
+            month,
+          );
+
+
+        appData.history[key] =
+          {
+            schedule:
+              deepClone(
+                originalSchedule,
+              ),
+
+            originalCounts:
+              deepClone(
+                currentOriginalCounts,
+              ),
+
+            leave:
+              getLeaveMapForMonth(
+                year,
+                month,
+              ),
+          };
+
+
+        cleanupOldHistory(
+          year,
+          month,
+        );
+
+
+        saveLocalData();
+
+
+        renderSchedule();
+      } catch (error) {
+        console.error(
+          error,
+        );
+
+
+        if (status) {
+          status.textContent =
+            "배정 실패";
+
+          status.classList.remove(
+            "success",
+          );
+        }
+
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : "배정표 생성 중 오류가 발생했습니다.",
+        );
+      }
+    },
+    20,
+  );
+}
+
+
+/* =========================================================
+ * 날짜 입력
+ * ========================================================= */
+
+function readDateInputs() {
+  const year =
+    Number(
+      document.getElementById(
+        "yearInput",
+      ).value,
+    );
+
+
+  const month =
+    Number(
+      document.getElementById(
+        "monthInput",
+      ).value,
+    );
+
+
+  const startDay =
+    Number(
+      document.getElementById(
+        "startDayInput",
+      ).value,
+    );
+
+
+  const endDay =
+    Number(
+      document.getElementById(
+        "endDayInput",
+      ).value,
+    );
+
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(startDay) ||
+    !Number.isInteger(endDay)
   ) {
-    for (
-      const job of JOBS
-    ) {
-      baselineTotal +=
-        appData.baseline[
-          worker
-        ][job];
-    }
+    throw new Error(
+      "연도, 월, 시작일, 종료일을 확인해주세요.",
+    );
   }
 
 
   if (
-    historyCount === 0 &&
-    baselineTotal === 0
+    month < 1 ||
+    month > 12
   ) {
-    element.textContent =
-      "누적 데이터 없음";
-
-    return;
+    throw new Error(
+      "월은 1~12 사이여야 합니다.",
+    );
   }
 
 
-  element.textContent =
-    `상세 기록 ${historyCount}개월 · 압축 누적 ${baselineTotal}건`;
+  const daysInMonth =
+    new Date(
+      year,
+      month,
+      0,
+    ).getDate();
+
+
+  if (
+    startDay < 1 ||
+    startDay > daysInMonth
+  ) {
+    throw new Error(
+      "시작일이 올바르지 않습니다.",
+    );
+  }
+
+
+  if (
+    endDay < 1 ||
+    endDay > daysInMonth
+  ) {
+    throw new Error(
+      "종료일이 올바르지 않습니다.",
+    );
+  }
+
+
+  if (
+    startDay > endDay
+  ) {
+    throw new Error(
+      "시작일은 종료일보다 클 수 없습니다.",
+    );
+  }
+
+
+  return {
+    year,
+    month,
+    startDay,
+    endDay,
+  };
 }
 
 
 /* =========================================================
- * 복사
- * ======================================================= */
-
-async function handleCopy() {
-  if (!copiedText) {
-    alert(
-      "먼저 배정표를 생성해주세요.",
-    );
-
-    return;
-  }
-
-
-  try {
-    await navigator.clipboard.writeText(
-      copiedText,
-    );
-
-
-    alert(
-      "배정표가 클립보드에 복사되었습니다.",
-    );
-  } catch (error) {
-    console.error(
-      error,
-    );
-
-
-    const textarea =
-      document.createElement(
-        "textarea",
-      );
-
-
-    textarea.value =
-      copiedText;
-
-
-    textarea.style.position =
-      "fixed";
-
-    textarea.style.left =
-      "-9999px";
-
-
-    document.body.appendChild(
-      textarea,
-    );
-
-
-    textarea.focus();
-
-    textarea.select();
-
-
-    try {
-      document.execCommand(
-        "copy",
-      );
-
-
-      alert(
-        "배정표가 복사되었습니다.",
-      );
-    } catch (
-      copyError
-    ) {
-      console.error(
-        copyError,
-      );
-
-
-      alert(
-        "복사에 실패했습니다.",
-      );
-    }
-
-
-    textarea.remove();
-  }
-}
-
-
-/* =========================================================
- * 테마
- * ======================================================= */
+ * 다크모드
+ * ========================================================= */
 
 function updateThemeButton() {
   const button =
@@ -3827,7 +4316,7 @@ function handleThemeToggle() {
 
 /* =========================================================
  * 요일
- * ======================================================= */
+ * ========================================================= */
 
 function getWeekdayName(
   weekday,
@@ -3842,21 +4331,29 @@ function getWeekdayName(
     "토",
   ];
 
-  return names[weekday];
+
+  return names[
+    weekday
+  ];
 }
 
 
 /* =========================================================
  * 초기화
- * ======================================================= */
+ * ========================================================= */
 
 async function initializeApp() {
   restoreTheme();
 
-  /*
-   * 먼저 로컬 기록을 준비
-   */
+
+  loadGithubConfig();
+
   loadLocalData();
+
+
+  updateGithubForm();
+
+  updateGithubConfigStatus();
 
   renderLeaveList();
 
@@ -3866,11 +4363,16 @@ async function initializeApp() {
 
 
   /*
-   * GitHub 저장소의 공식 기록을 읽는다.
+   * GitHub 기록을 자동으로 우선 확인한다.
    */
-  await loadRepositoryData(
-    false,
-  );
+  if (
+    githubConfig.owner &&
+    githubConfig.repo
+  ) {
+    await loadRepositoryData(
+      false,
+    );
+  }
 
 
   const generateButton =
@@ -3953,6 +4455,86 @@ async function initializeApp() {
   }
 
 
+  const saveGithubConfigButton =
+    document.getElementById(
+      "saveGithubConfigButton",
+    );
+
+
+  if (
+    saveGithubConfigButton
+  ) {
+    saveGithubConfigButton.addEventListener(
+      "click",
+      handleSaveGithubConfig,
+    );
+  }
+
+
+  const testGithubButton =
+    document.getElementById(
+      "testGithubButton",
+    );
+
+
+  if (
+    testGithubButton
+  ) {
+    testGithubButton.addEventListener(
+      "click",
+      handleTestGithub,
+    );
+  }
+
+
+  const prepareGithubButton =
+    document.getElementById(
+      "prepareGithubButton",
+    );
+
+
+  if (
+    prepareGithubButton
+  ) {
+    prepareGithubButton.addEventListener(
+      "click",
+      handlePrepareGithub,
+    );
+  }
+
+
+  const copyJsonButton =
+    document.getElementById(
+      "copyJsonButton",
+    );
+
+
+  if (
+    copyJsonButton
+  ) {
+    copyJsonButton.addEventListener(
+      "click",
+      handleCopyJson,
+    );
+  }
+
+
+  const openGithubEditButton =
+    document.getElementById(
+      "openGithubEditButton",
+    );
+
+
+  if (
+    openGithubEditButton
+  ) {
+    openGithubEditButton.addEventListener(
+      "click",
+      handleOpenGithubEdit,
+    );
+  }
+
+
   const loadRepositoryButton =
     document.getElementById(
       "loadRepositoryButton",
@@ -4020,6 +4602,120 @@ async function initializeApp() {
   }
 }
 
+
+/* =========================================================
+ * 이벤트 함수
+ * ========================================================= */
+
+function handleSaveGithubConfig() {
+  try {
+    githubConfig =
+      readGithubInputs();
+
+    saveGithubConfig();
+
+    alert(
+      "GitHub 저장 설정을 저장했습니다.",
+    );
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "GitHub 설정을 확인해주세요.",
+    );
+  }
+}
+
+
+function handleSaveLeave() {
+  const input =
+    document.getElementById(
+      "leaveDateInput",
+    );
+
+
+  if (
+    !input ||
+    !input.value
+  ) {
+    alert(
+      "연차 날짜를 선택해주세요.",
+    );
+
+    return;
+  }
+
+
+  const workers =
+    [
+      ...document.querySelectorAll(
+        "[data-leave-worker]:checked",
+      ),
+    ].map(
+      (element) =>
+        element.value,
+    );
+
+
+  if (
+    workers.length === 0
+  ) {
+    alert(
+      "연차자를 한 명 이상 선택해주세요.",
+    );
+
+    return;
+  }
+
+
+  setLeaveWorkers(
+    input.value,
+    workers,
+  );
+
+
+  input.value =
+    "";
+
+
+  document
+    .querySelectorAll(
+      "[data-leave-worker]",
+    )
+    .forEach(
+      (checkbox) => {
+        checkbox.checked =
+          false;
+      },
+    );
+}
+
+
+function handleClearLeaves() {
+  const confirmed =
+    window.confirm(
+      "등록된 연차를 모두 삭제할까요?",
+    );
+
+
+  if (!confirmed) {
+    return;
+  }
+
+
+  appData.leave =
+    {};
+
+
+  saveLocalData();
+
+  renderLeaveList();
+}
+
+
+/* =========================================================
+ * 초기 데이터
+ * ========================================================= */
 
 document.addEventListener(
   "DOMContentLoaded",
