@@ -168,7 +168,6 @@ button {
   gap: 8px;
 }
 
-/* 이름 및 업무명 설정 */
 .settings-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -263,12 +262,6 @@ button {
   color: var(--success);
 }
 
-.export-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .file-button {
   display: inline-flex;
   align-items: center;
@@ -323,6 +316,14 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.calendar-weekday.sunday {
+  color: var(--danger);
+}
+
+.calendar-weekday.saturday {
+  color: var(--primary);
+}
+
 .calendar-day {
   min-height: 145px;
   padding: 7px;
@@ -337,16 +338,33 @@ button {
   background: var(--bg);
 }
 
-.calendar-day.other-month {
-  background: var(--calendar-other);
+.calendar-day.empty {
   cursor: default;
+  background: var(--calendar-other);
 }
 
-.calendar-day-number {
+.calendar-day.weekend {
+  background: color-mix(
+    in srgb,
+    var(--bg) 45%,
+    var(--card)
+  );
+}
+
+.calendar-day.today {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.calendar-date {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
   margin-bottom: 5px;
+}
+
+.calendar-date-number {
   font-weight: 700;
 }
 
@@ -389,6 +407,7 @@ button {
 }
 
 .calendar-worker-job {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -396,14 +415,6 @@ button {
 
 .calendar-worker-job.leave {
   color: var(--danger);
-}
-
-.calendar-assignment {
-  display: grid;
-}
-
-.calendar-worker-job {
-  min-width: 0;
 }
 
 .double-task {
@@ -536,29 +547,6 @@ button {
   font-weight: 600;
 }
 
-.balance-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.balance-table th,
-.balance-table td {
-  padding: 9px 8px;
-  border-bottom: 1px solid var(--border);
-  text-align: center;
-}
-
-.balance-table th:first-child,
-.balance-table td:first-child {
-  text-align: left;
-}
-
-.balance-table th {
-  color: var(--muted);
-  font-weight: 600;
-}
-
 .modal {
   position: fixed;
   inset: 0;
@@ -584,7 +572,9 @@ button {
   background: var(--card);
   border-radius: 14px;
   border: 1px solid var(--border);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  box-shadow:
+    0 10px 40px
+    rgba(0, 0, 0, 0.25);
 }
 
 .modal-header {
