@@ -108,38 +108,7 @@ export function createDailyCandidates() {
       continue;
     }
 
-    result.push(
-      candidate,
-    );
-  }
-
-  return result;
-}
-
-
-export function calculateOriginalCounts(
-  schedule,
-) {
-  const result =
-    normalizeWorkerCounts(
-      null,
-    );
-
-  for (
-    const day of schedule
-  ) {
-    for (
-      const job of JOBS
-    ) {
-      const worker =
-        day[job];
-
-      if (!worker) {
-        continue;
-      }
-
-      result[worker][job] += 1;
-    }
+    result.push(candidate);
   }
 
   return result;
@@ -161,58 +130,6 @@ export function getJobForWorker(
   }
 
   return null;
-}
-
-
-function getStartingCounts(
-  year,
-  month,
-) {
-  let counts =
-    normalizeWorkerCounts(
-      appData.baseline,
-    );
-
-  const target =
-    getMonthKey(
-      year,
-      month,
-    );
-
-  const keys =
-    Object.keys(
-      appData.history,
-    ).sort(
-      (a, b) =>
-        a.localeCompare(b),
-    );
-
-  for (
-    const key of keys
-  ) {
-    if (
-      key === target
-    ) {
-      continue;
-    }
-
-    const monthData =
-      appData.history[key];
-
-    if (
-      !monthData?.originalCounts
-    ) {
-      continue;
-    }
-
-    counts =
-      addWorkerCounts(
-        counts,
-        monthData.originalCounts,
-      );
-  }
-
-  return counts;
 }
 
 
@@ -334,23 +251,33 @@ function calculatePartialScore(
 
   return (
     getRange(
-      getBowlCounts(counts),
+      getBowlCounts(
+        counts,
+      ),
     ) * 1000000 +
 
     getRange(
-      getBowlHelperCounts(counts),
+      getBowlHelperCounts(
+        counts,
+      ),
     ) * 100000 +
 
     getRange(
-      getLiuCounts(counts),
+      getLiuCounts(
+        counts,
+      ),
     ) * 10000 +
 
     getRange(
-      getMainExtraCounts(counts),
+      getMainExtraCounts(
+        counts,
+      ),
     ) * 1000 +
 
     getRange(
-      getParkCounts(counts),
+      getParkCounts(
+        counts,
+      ),
     ) * 500 +
 
     calculateFullConsecutivePenalty(
@@ -368,29 +295,43 @@ function calculateFinalScore(
 
   const bowlRange =
     getRange(
-      getBowlCounts(counts),
+      getBowlCounts(
+        counts,
+      ),
     );
 
   const helperRange =
     getRange(
-      getBowlHelperCounts(counts),
+      getBowlHelperCounts(
+        counts,
+      ),
     );
 
   const liuCounts =
-    getLiuCounts(counts);
+    getLiuCounts(
+      counts,
+    );
 
   const liuRange =
-    getRange(liuCounts);
+    getRange(
+      liuCounts,
+    );
 
   const parkCounts =
-    getParkCounts(counts);
+    getParkCounts(
+      counts,
+    );
 
   const parkRange =
-    getRange(parkCounts);
+    getRange(
+      parkCounts,
+    );
 
   const mainExtraRange =
     getRange(
-      getMainExtraCounts(counts),
+      getMainExtraCounts(
+        counts,
+      ),
     );
 
   let mainJobSpread = 0;
@@ -549,7 +490,8 @@ function pruneStates(
 
     group.sort(
       (a, b) =>
-        a.score - b.score,
+        a.score -
+        b.score,
     );
 
     if (
@@ -578,7 +520,8 @@ function pruneStates(
 
   flattened.sort(
     (a, b) =>
-      a.score - b.score,
+      a.score -
+      b.score,
   );
 
   return flattened
@@ -590,6 +533,87 @@ function pruneStates(
       (item) =>
         item.state,
     );
+}
+
+
+/*
+ * 현재 배정 대상 월의 누적 시작값을 계산한다.
+ *
+ * baseline:
+ *   이미 retention 기간 밖으로 이동된 누적값
+ *
+ * history:
+ *   현재 상세 보관 중인 이전 월들의 originalCounts
+ *
+ * target month:
+ *   현재 새로 계산하는 월이므로 기존 기록은 제외
+ */
+export function getStartingCountsForMonth(
+  year,
+  month,
+) {
+  let counts =
+    normalizeWorkerCounts(
+      appData.baseline,
+    );
+
+  const targetMonth =
+    getMonthKey(
+      year,
+      month,
+    );
+
+  const rollingKeys =
+    new Set(
+      getRollingMonthKeys(
+        year,
+        month,
+        RETENTION_MONTHS,
+      ),
+    );
+
+  for (
+    const [
+      monthKey,
+      monthData,
+    ] of Object.entries(
+      appData.history || {},
+    )
+  ) {
+    if (
+      monthKey === targetMonth
+    ) {
+      continue;
+    }
+
+    /*
+     * 현재 기준 최근 6개월 범위 밖의
+     * history 데이터가 혹시 남아 있더라도
+     * 다시 더하지 않는다.
+     *
+     * 정상 데이터에서는 cleanupOldHistory()
+     * 때문에 거의 발생하지 않는다.
+     */
+    if (
+      !rollingKeys.has(monthKey)
+    ) {
+      continue;
+    }
+
+    if (
+      !monthData?.originalCounts
+    ) {
+      continue;
+    }
+
+    counts =
+      addWorkerCounts(
+        counts,
+        monthData.originalCounts,
+      );
+  }
+
+  return counts;
 }
 
 
@@ -636,8 +660,7 @@ export function optimizeMonth(
           startingCounts,
         ),
 
-      lastAssignment:
-        null,
+      lastAssignment: null,
     },
   ];
 
@@ -654,20 +677,26 @@ export function optimizeMonth(
       for (
         const candidate of dailyCandidates
       ) {
+        const nextSchedule = [
+          ...state.schedule,
+          {
+            ...dates[index],
+            ...candidate,
+          },
+        ];
+
+        const nextCounts =
+          addAssignmentToCounts(
+            state.counts,
+            candidate,
+          );
+
         nextStates.push({
-          schedule: [
-            ...state.schedule,
-            {
-              ...dates[index],
-              ...candidate,
-            },
-          ],
+          schedule:
+            nextSchedule,
 
           counts:
-            addAssignmentToCounts(
-              state.counts,
-              candidate,
-            ),
+            nextCounts,
 
           lastAssignment:
             candidate,
@@ -679,6 +708,14 @@ export function optimizeMonth(
       pruneStates(
         nextStates,
       );
+
+    if (
+      states.length === 0
+    ) {
+      throw new Error(
+        `${month}월 ${dates[index]?.day ?? ""}일 배정 후보를 찾을 수 없습니다.`,
+      );
+    }
   }
 
   states.sort(
@@ -693,10 +730,16 @@ export function optimizeMonth(
 
 export function validateOriginalSchedule(
   schedule,
-  getWorkerLabel,
-  getJobLabel,
+  getWorkerLabel = (worker) => worker,
+  getJobLabel = (job) => job,
 ) {
   const errors = [];
+
+  if (!Array.isArray(schedule)) {
+    return [
+      "배정표 데이터가 올바르지 않습니다.",
+    ];
+  }
 
   for (
     const day of schedule
@@ -704,7 +747,7 @@ export function validateOriginalSchedule(
     const assignedWorkers =
       JOBS.map(
         (job) =>
-          day[job],
+          day?.[job],
       );
 
     if (
@@ -714,7 +757,7 @@ export function validateOriginalSchedule(
       )
     ) {
       errors.push(
-        `${day.month}월 ${day.day}일: 미배정 업무`,
+        `${day?.month ?? "?"}월 ${day?.day ?? "?"}일: 미배정 업무`,
       );
 
       continue;
@@ -723,7 +766,7 @@ export function validateOriginalSchedule(
     if (
       new Set(
         assignedWorkers,
-      ).size !== 5
+      ).size !== WORKERS.length
     ) {
       errors.push(
         `${day.month}월 ${day.day}일: 작업자 중복`,
@@ -733,14 +776,17 @@ export function validateOriginalSchedule(
     for (
       const job of JOBS
     ) {
+      const worker =
+        day[job];
+
       if (
         !isAllowed(
-          day[job],
+          worker,
           job,
         )
       ) {
         errors.push(
-          `${day.month}월 ${day.day}일: ${getWorkerLabel(day[job])} → ${getJobLabel(job)} 규칙 위반`,
+          `${day.month}월 ${day.day}일: ${getWorkerLabel(worker)} → ${getJobLabel(job)} 규칙 위반`,
         );
       }
     }
@@ -750,34 +796,31 @@ export function validateOriginalSchedule(
 }
 
 
-export function getStartingCountsForMonth(
-  year,
-  month,
-) {
-  return getStartingCounts(
-    year,
-    month,
-  );
-}
-
-
+/*
+ * 오래된 상세 기록을 baseline으로 압축한다.
+ *
+ * 예:
+ *
+ * 현재 기준이 2026-09라면
+ *
+ * history:
+ *   2026-04
+ *   2026-05
+ *   2026-06
+ *   2026-07
+ *   2026-08
+ *   2026-09
+ *
+ * 이 범위를 벗어난 월은
+ * originalCounts를 baseline으로 합산하고
+ * history에서는 삭제한다.
+ */
 export function cleanupOldHistory(
   referenceYear,
   referenceMonth,
 ) {
-  const keys =
-    Object.keys(
-      appData.history,
-    ).sort(
-      (a, b) =>
-        a.localeCompare(b),
-    );
-
-  if (
-    keys.length === 0
-  ) {
-    return;
-  }
+  const history =
+    appData.history || {};
 
   const keep =
     new Set(
@@ -788,43 +831,56 @@ export function cleanupOldHistory(
       ),
     );
 
+  let baseline =
+    normalizeWorkerCounts(
+      appData.baseline,
+    );
+
+  const nextHistory = {
+    ...history,
+  };
+
   let changed = false;
 
   for (
-    const key of keys
+    const [
+      monthKey,
+      monthData,
+    ] of Object.entries(history)
   ) {
     if (
-      keep.has(key)
+      keep.has(monthKey)
     ) {
       continue;
     }
 
-    const monthData =
-      appData.history[key];
-
     if (
       monthData?.originalCounts
     ) {
-      const nextBaseline =
+      baseline =
         addWorkerCounts(
-          appData.baseline,
+          baseline,
           monthData.originalCounts,
         );
-
-      appData.baseline =
-        nextBaseline;
-
-      changed = true;
     }
 
-    delete appData.history[key];
+    delete nextHistory[monthKey];
 
     changed = true;
   }
 
-  if (changed) {
-    setAppData({
-      ...appData,
-    });
+  if (!changed) {
+    return false;
   }
+
+  setAppData({
+    ...appData,
+
+    baseline,
+
+    history:
+      nextHistory,
+  });
+
+  return true;
 }
