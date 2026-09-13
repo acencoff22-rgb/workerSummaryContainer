@@ -48,9 +48,7 @@
 
     <main>
 
-      <!-- =========================
-           배정 기간
-      ========================== -->
+      <!-- 배정 기간 -->
 
       <section class="panel">
 
@@ -154,9 +152,7 @@
       </section>
 
 
-      <!-- =========================
-           월간 달력
-      ========================== -->
+      <!-- 월간 달력 -->
 
       <section class="panel">
 
@@ -166,7 +162,7 @@
             <h2>월간 달력</h2>
 
             <p class="help-text">
-              생성된 배정표를 날짜별로 확인할 수 있습니다.
+              날짜를 클릭하면 해당 날짜의 상세 배정을 확인할 수 있습니다.
             </p>
           </div>
 
@@ -215,9 +211,7 @@
       </section>
 
 
-      <!-- =========================
-           연차
-      ========================== -->
+      <!-- 연차 -->
 
       <section class="panel">
 
@@ -342,9 +336,7 @@
       </section>
 
 
-      <!-- =========================
-           GitHub 설정
-      ========================== -->
+      <!-- GitHub 설정 -->
 
       <section class="panel">
 
@@ -447,9 +439,7 @@
       </section>
 
 
-      <!-- =========================
-           규칙
-      ========================== -->
+      <!-- 규칙 -->
 
       <section class="panel">
 
@@ -521,9 +511,7 @@
       </section>
 
 
-      <!-- =========================
-           결과
-      ========================== -->
+      <!-- 생성 결과 -->
 
       <section class="panel">
 
@@ -549,9 +537,7 @@
       </section>
 
 
-      <!-- =========================
-           업무별 횟수
-      ========================== -->
+      <!-- 업무별 횟수 -->
 
       <section class="panel">
 
@@ -572,9 +558,7 @@
       </section>
 
 
-      <!-- =========================
-           작업자별 횟수
-      ========================== -->
+      <!-- 작업자별 횟수 -->
 
       <section class="panel">
 
@@ -592,9 +576,7 @@
       </section>
 
 
-      <!-- =========================
-           GitHub 저장
-      ========================== -->
+      <!-- GitHub 저장 -->
 
       <section class="panel">
 
@@ -605,7 +587,7 @@
             <h2>GitHub 저장</h2>
 
             <p class="help-text">
-              JSON을 자동으로 복사하고 GitHub 편집 화면을 엽니다.
+              JSON을 복사하고 GitHub history.json 편집 화면을 열 수 있습니다.
             </p>
 
           </div>
@@ -654,9 +636,7 @@
       </section>
 
 
-      <!-- =========================
-           데이터 관리
-      ========================== -->
+      <!-- 데이터 관리 -->
 
       <section class="panel">
 
@@ -733,6 +713,74 @@
       </p>
 
     </footer>
+
+  </div>
+
+
+  <!-- 날짜 상세 모달 -->
+
+  <div
+    id="dayDetailModal"
+    class="modal-backdrop"
+    hidden
+  >
+
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dayDetailTitle"
+    >
+
+      <div class="modal-header">
+
+        <h2
+          id="dayDetailTitle"
+        >
+          날짜 상세
+        </h2>
+
+
+        <button
+          id="closeDayDetailButton"
+          class="modal-close-button"
+          type="button"
+          aria-label="닫기"
+        >
+          ×
+        </button>
+
+      </div>
+
+
+      <div
+        id="dayDetailBody"
+        class="modal-body"
+      ></div>
+
+
+      <div class="modal-footer">
+
+        <button
+          id="dayDetailLeaveButton"
+          class="secondary-button"
+          type="button"
+        >
+          이 날짜 연차 관리
+        </button>
+
+
+        <button
+          id="dayDetailCloseButton"
+          class="primary-button"
+          type="button"
+        >
+          닫기
+        </button>
+
+      </div>
+
+    </div>
 
   </div>
 
