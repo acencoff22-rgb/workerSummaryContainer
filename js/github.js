@@ -61,21 +61,35 @@ export function readGithubInputs() {
     );
   }
 
+  if (!branch) {
+    throw new Error(
+      "브랜치를 입력해주세요.",
+    );
+  }
+
   return {
     owner,
+
     repo,
+
     branch,
+
     dataPath:
-      dataPath.replace(
-        /^\/+/,
-        "",
-      ),
+      dataPath
+        .replace(
+          /^\/+/,
+          "",
+        )
+        .replace(
+          /\/{2,}/g,
+          "/",
+        ),
   };
 }
 
 
 export function updateGithubForm() {
-  const fields = {
+  const values = {
     githubOwnerInput:
       githubConfig.owner,
 
@@ -93,7 +107,7 @@ export function updateGithubForm() {
     const [
       id,
       value,
-    ] of Object.entries(fields)
+    ] of Object.entries(values)
   ) {
     const element =
       document.getElementById(id);
@@ -141,24 +155,71 @@ export function updateGithubConfigStatus() {
 }
 
 
+function normalizeGithubConfig(
+  config,
+) {
+  const base =
+    createEmptyGithubConfig();
+
+  const next = {
+    ...base,
+    ...(config || {}),
+  };
+
+  return {
+    owner:
+      String(
+        next.owner ?? "",
+      ).trim(),
+
+    repo:
+      String(
+        next.repo ?? "",
+      ).trim(),
+
+    branch:
+      String(
+        next.branch || "main",
+      ).trim(),
+
+    dataPath:
+      String(
+        next.dataPath ||
+          "data/history.json",
+      )
+        .trim()
+        .replace(
+          /^\/+/,
+          "",
+        )
+        .replace(
+          /\/{2,}/g,
+          "/",
+        ),
+  };
+}
+
+
 export function applyGithubConfig(
   config,
 ) {
-  const nextConfig = {
-    ...createEmptyGithubConfig(),
-    ...config,
-  };
+  const normalized =
+    normalizeGithubConfig(
+      config,
+    );
 
   setGithubConfig(
-    nextConfig,
+    normalized,
   );
 
   saveGithubConfig(
-    nextConfig,
+    normalized,
   );
 
   updateGithubForm();
   updateGithubConfigStatus();
+
+  return normalized;
 }
 
 
@@ -170,7 +231,7 @@ export function getGithubRawUrl() {
     return null;
   }
 
-  const path =
+  const encodedPath =
     githubConfig.dataPath
       .split("/")
       .filter(
@@ -178,7 +239,9 @@ export function getGithubRawUrl() {
       )
       .map(
         (part) =>
-          encodeURIComponent(part),
+          encodeURIComponent(
+            part,
+          ),
       )
       .join("/");
 
@@ -196,7 +259,7 @@ export function getGithubRawUrl() {
       githubConfig.branch,
     ) +
     "/" +
-    path
+    encodedPath
   );
 }
 
@@ -209,7 +272,7 @@ export function getGithubEditUrl() {
     return null;
   }
 
-  const path =
+  const encodedPath =
     githubConfig.dataPath
       .split("/")
       .filter(
@@ -217,7 +280,9 @@ export function getGithubEditUrl() {
       )
       .map(
         (part) =>
-          encodeURIComponent(part),
+          encodeURIComponent(
+            part,
+          ),
       )
       .join("/");
 
@@ -235,7 +300,7 @@ export function getGithubEditUrl() {
       githubConfig.branch,
     ) +
     "/" +
-    path
+    encodedPath
   );
 }
 
@@ -254,7 +319,7 @@ export async function loadRepositoryData(
   ) {
     if (status) {
       status.textContent =
-        "GitHub 저장소 미설정";
+        "GitHub 저장소가 설정되지 않았습니다.";
     }
 
     if (showAlert) {
@@ -276,6 +341,10 @@ export async function loadRepositoryData(
   if (status) {
     status.textContent =
       "GitHub 기록 불러오는 중...";
+
+    status.classList.remove(
+      "success",
+    );
   }
 
   try {
@@ -283,7 +352,12 @@ export async function loadRepositoryData(
       await fetch(
         `${rawUrl}?t=${Date.now()}`,
         {
+          method: "GET",
           cache: "no-store",
+          headers: {
+            Accept:
+              "application/json",
+          },
         },
       );
 
@@ -293,6 +367,10 @@ export async function loadRepositoryData(
       if (status) {
         status.textContent =
           "GitHub history.json 없음";
+
+        status.classList.remove(
+          "success",
+        );
       }
 
       if (showAlert) {
@@ -310,9 +388,12 @@ export async function loadRepositoryData(
       );
     }
 
+    const json =
+      await response.json();
+
     const remoteData =
       normalizeData(
-        await response.json(),
+        json,
       );
 
     setAppData(
@@ -326,6 +407,10 @@ export async function loadRepositoryData(
     if (status) {
       status.textContent =
         "GitHub 기록 불러오기 완료";
+
+      status.classList.add(
+        "success",
+      );
     }
 
     if (showAlert) {
@@ -344,11 +429,17 @@ export async function loadRepositoryData(
     if (status) {
       status.textContent =
         "GitHub 기록 불러오기 실패";
+
+      status.classList.remove(
+        "success",
+      );
     }
 
     if (showAlert) {
       alert(
-        "GitHub 기록을 불러오지 못했습니다.",
+        error instanceof Error
+          ? `GitHub 기록을 불러오지 못했습니다.\n${error.message}`
+          : "GitHub 기록을 불러오지 못했습니다.",
       );
     }
 
@@ -428,11 +519,17 @@ export async function handlePrepareGithub() {
       );
     }
 
-    window.open(
-      url,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const editWindow =
+      window.open(
+        url,
+        "_blank",
+      );
+
+    if (!editWindow) {
+      throw new Error(
+        "GitHub 편집 창을 열 수 없습니다. 브라우저의 팝업 차단을 확인해주세요.",
+      );
+    }
 
     const status =
       document.getElementById(
@@ -440,18 +537,30 @@ export async function handlePrepareGithub() {
       );
 
     if (status) {
-      status.textContent =
-        copied
-          ? "JSON을 복사하고 GitHub 편집 화면을 열었습니다. history.json 전체 내용을 붙여넣은 뒤 Commit changes를 누르세요."
-          : "GitHub 편집 화면을 열었습니다. JSON 복사는 실패했습니다.";
+      if (copied) {
+        status.textContent =
+          "JSON을 복사하고 GitHub 편집 화면을 열었습니다. history.json 전체 내용을 붙여넣은 뒤 Commit changes를 누르세요.";
 
-      status.classList.add(
-        "success",
-      );
+        status.classList.add(
+          "success",
+        );
+      } else {
+        status.textContent =
+          "GitHub 편집 화면을 열었지만 JSON 복사에 실패했습니다.";
+
+        status.classList.remove(
+          "success",
+        );
+      }
     }
 
     return true;
   } catch (error) {
+    console.error(
+      "GitHub 저장 준비 실패:",
+      error,
+    );
+
     alert(
       error instanceof Error
         ? error.message
@@ -481,14 +590,25 @@ export function handleOpenGithubEdit() {
       );
     }
 
-    window.open(
-      url,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const editWindow =
+      window.open(
+        url,
+        "_blank",
+      );
+
+    if (!editWindow) {
+      throw new Error(
+        "GitHub 편집 창을 열 수 없습니다. 브라우저의 팝업 차단을 확인해주세요.",
+      );
+    }
 
     return true;
   } catch (error) {
+    console.error(
+      "GitHub 편집 화면 열기 실패:",
+      error,
+    );
+
     alert(
       error instanceof Error
         ? error.message
