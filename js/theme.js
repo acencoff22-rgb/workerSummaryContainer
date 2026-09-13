@@ -24,6 +24,13 @@ export function updateThemeButton() {
     dark
       ? "라이트모드"
       : "다크모드";
+
+  button.setAttribute(
+    "aria-label",
+    dark
+      ? "라이트모드로 변경"
+      : "다크모드로 변경",
+  );
 }
 
 
