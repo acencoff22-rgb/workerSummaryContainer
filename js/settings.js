@@ -48,10 +48,14 @@ export function renderNameSettings() {
     );
 
   if (workerContainer) {
-    workerContainer.innerHTML = "";
+    workerContainer.innerHTML =
+      "";
 
     WORKERS.forEach(
-      (worker, index) => {
+      (
+        worker,
+        index,
+      ) => {
         const label =
           document.createElement(
             "label",
@@ -93,10 +97,14 @@ export function renderNameSettings() {
   }
 
   if (jobContainer) {
-    jobContainer.innerHTML = "";
+    jobContainer.innerHTML =
+      "";
 
     JOBS.forEach(
-      (job, index) => {
+      (
+        job,
+        index,
+      ) => {
         const label =
           document.createElement(
             "label",
@@ -157,20 +165,44 @@ export function updateLeaveWorkerLabels() {
 
 
 export function handleSaveNameSettings() {
-  const workerInputs = [
-    ...document.querySelectorAll(
-      ".worker-name-input",
-    ),
-  ];
+  const workerInputs =
+    [
+      ...document.querySelectorAll(
+        ".worker-name-input",
+      ),
+    ];
 
-  const jobInputs = [
-    ...document.querySelectorAll(
-      ".job-name-input",
-    ),
-  ];
+  const jobInputs =
+    [
+      ...document.querySelectorAll(
+        ".job-name-input",
+      ),
+    ];
 
   const workers = {};
   const jobs = {};
+
+  if (
+    workerInputs.length !==
+    WORKERS.length
+  ) {
+    alert(
+      "작업자 이름 설정 화면을 찾을 수 없습니다.",
+    );
+
+    return false;
+  }
+
+  if (
+    jobInputs.length !==
+    JOBS.length
+  ) {
+    alert(
+      "업무명 설정 화면을 찾을 수 없습니다.",
+    );
+
+    return false;
+  }
 
   for (
     const input of workerInputs
@@ -215,10 +247,14 @@ export function handleSaveNameSettings() {
   }
 
   const workerValues =
-    Object.values(workers);
+    Object.values(
+      workers,
+    );
 
   const jobValues =
-    Object.values(jobs);
+    Object.values(
+      jobs,
+    );
 
   if (
     new Set(workerValues).size !==
@@ -242,15 +278,22 @@ export function handleSaveNameSettings() {
     return false;
   }
 
-  setAppData({
+  const nextData = {
     ...appData,
+
     names: {
       workers,
       jobs,
     },
-  });
+  };
 
-  saveLocalData(appData);
+  setAppData(
+    nextData,
+  );
+
+  saveLocalData(
+    nextData,
+  );
 
   return true;
 }
@@ -266,13 +309,20 @@ export function handleResetNameSettings() {
     return false;
   }
 
-  setAppData({
+  const nextData = {
     ...appData,
+
     names:
       createDefaultNameSettings(),
-  });
+  };
 
-  saveLocalData(appData);
+  setAppData(
+    nextData,
+  );
+
+  saveLocalData(
+    nextData,
+  );
 
   return true;
 }
