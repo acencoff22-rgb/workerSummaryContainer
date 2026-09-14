@@ -17,7 +17,6 @@ import {
 } from "./state.js";
 
 import {
-  addAssignmentToCounts,
   addWorkerCounts,
   normalizeWorkerCounts,
 } from "./data.js";
@@ -32,6 +31,37 @@ import {
 
 
 /* =========================================================
+ * 빠른 카운트 적용
+ * ======================================================= */
+
+function applyAssignmentFast(
+  counts,
+  assignment,
+) {
+  const result = {};
+
+  for (const worker of WORKERS) {
+    result[worker] = {
+      ...counts[worker],
+    };
+  }
+
+  for (const job of JOBS) {
+    const worker = assignment[job];
+
+    if (
+      worker &&
+      result[worker]
+    ) {
+      result[worker][job] += 1;
+    }
+  }
+
+  return result;
+}
+
+
+/* =========================================================
  * 업무 제한
  * ======================================================= */
 
@@ -39,10 +69,6 @@ export function isAllowed(
   worker,
   job,
 ) {
-  /*
-   * 볼분리 / 볼분리 보조는
-   * 김 / 탁 / 임만 가능
-   */
   if (
     job === "볼분리" ||
     job === "볼분리 보조"
@@ -52,9 +78,6 @@ export function isAllowed(
     );
   }
 
-  /*
-   * 박은 설거지 / 분쇄 계열만 가능
-   */
   if (
     worker === "박"
   ) {
@@ -63,9 +86,6 @@ export function isAllowed(
     );
   }
 
-  /*
-   * 류는 설거지 / 분쇄 / 성형 계열만 가능
-   */
   if (
     worker === "류"
   ) {
@@ -81,6 +101,74 @@ export function isAllowed(
 /* =========================================================
  * 하루 후보
  * ======================================================= */
+
+/*
+ * 제한 업무의 구조를 4가지 패턴으로 분류한다.
+ *
+ * 패턴 번호
+ * ---------------------------------------------------------
+ * 0 = 박→분쇄, 류→성형
+ * 1 = 박→설거지, 류→성형
+ * 2 = 박→설거지, 류→분쇄
+ * 3 = 박→분쇄, 류→설거지
+ *
+ * 각 패턴에는 김/탁/임의 남은 업무 배치가
+ * 6가지씩 존재한다.
+ *
+ * 먼저 이 4개 패턴의 월간 사용 횟수를 최적화해서
+ * 박/류의 업무 균형을 정확히 맞춘 뒤,
+ * 각 패턴 안에서 김/탁/임 배치를 최적화한다.
+ */
+function getCandidatePattern(
+  candidate,
+) {
+  const parkJob =
+    candidate["설거지 및 성형보조"] === "박"
+      ? "설거지"
+      : candidate["분쇄 및 성형보조"] === "박"
+        ? "분쇄"
+        : null;
+
+  const liuJob =
+    candidate["설거지 및 성형보조"] === "류"
+      ? "설거지"
+      : candidate["분쇄 및 성형보조"] === "류"
+        ? "분쇄"
+        : candidate["성형 및 분쇄보조"] === "류"
+          ? "성형"
+          : null;
+
+  if (
+    parkJob === "분쇄" &&
+    liuJob === "성형"
+  ) {
+    return 0;
+  }
+
+  if (
+    parkJob === "설거지" &&
+    liuJob === "성형"
+  ) {
+    return 1;
+  }
+
+  if (
+    parkJob === "설거지" &&
+    liuJob === "분쇄"
+  ) {
+    return 2;
+  }
+
+  if (
+    parkJob === "분쇄" &&
+    liuJob === "설거지"
+  ) {
+    return 3;
+  }
+
+  return -1;
+}
+
 
 export function createDailyCandidates() {
   const result = [];
@@ -126,9 +214,21 @@ export function createDailyCandidates() {
       continue;
     }
 
-    result.push(
-      candidate,
-    );
+    const pattern =
+      getCandidatePattern(
+        candidate,
+      );
+
+    if (pattern < 0) {
+      continue;
+    }
+
+    result.push({
+      assignment:
+        candidate,
+
+      pattern,
+    });
   }
 
   return result;
@@ -165,10 +265,6 @@ export function getStartingCountsForMonth(
   year,
   month,
 ) {
-  /*
-   * baseline에는 이미 보관기간 밖의
-   * 과거 기록이 압축되어 있다.
-   */
   let counts =
     normalizeWorkerCounts(
       appData.baseline,
@@ -180,10 +276,6 @@ export function getStartingCountsForMonth(
       month,
     );
 
-  /*
-   * 현재 생성 월을 기준으로
-   * 보관 중인 최근 6개월 범위만 사용한다.
-   */
   const rollingKeys =
     new Set(
       getRollingMonthKeys(
@@ -199,24 +291,17 @@ export function getStartingCountsForMonth(
       monthData,
     ] of Object.entries(
       appData.history || {},
-    )
-  ) {
-    /*
-     * 현재 생성 대상 월은 기존 기록을
-     * 누적 계산에서 제외한다.
-     */
+    )) {
     if (
       monthKey === targetMonth
     ) {
       continue;
     }
 
-    /*
-     * 혹시 history에 오래된 데이터가 남아 있더라도
-     * baseline과 중복 계산하지 않는다.
-     */
     if (
-      !rollingKeys.has(monthKey)
+      !rollingKeys.has(
+        monthKey,
+      )
     ) {
       continue;
     }
@@ -239,87 +324,281 @@ export function getStartingCountsForMonth(
 
 
 /* =========================================================
- * 기본 균형값
+ * 박/류의 월간 패턴 최적화
  * ======================================================= */
 
-function getBowlCounts(
-  counts,
+/*
+ * 패턴별 증가량
+ *
+ * pattern 0
+ *   박 분쇄 +1
+ *   류 성형 +1
+ *
+ * pattern 1
+ *   박 설거지 +1
+ *   류 성형 +1
+ *
+ * pattern 2
+ *   박 설거지 +1
+ *   류 분쇄 +1
+ *
+ * pattern 3
+ *   박 분쇄 +1
+ *   류 설거지 +1
+ */
+const PATTERN_EFFECTS = [
+  {
+    park: "분쇄",
+    liu: "성형",
+  },
+  {
+    park: "설거지",
+    liu: "성형",
+  },
+  {
+    park: "설거지",
+    liu: "분쇄",
+  },
+  {
+    park: "분쇄",
+    liu: "설거지",
+  },
+];
+
+
+function calculatePatternResult(
+  startingCounts,
+  patternCounts,
 ) {
-  return MAIN_WORKERS.map(
-    (worker) =>
-      counts[worker]["볼분리"],
+  const park = {
+    설거지:
+      startingCounts["박"][
+        "설거지 및 성형보조"
+      ],
+
+    분쇄:
+      startingCounts["박"][
+        "분쇄 및 성형보조"
+      ],
+  };
+
+  const liu = {
+    설거지:
+      startingCounts["류"][
+        "설거지 및 성형보조"
+      ],
+
+    분쇄:
+      startingCounts["류"][
+        "분쇄 및 성형보조"
+      ],
+
+    성형:
+      startingCounts["류"][
+        "성형 및 분쇄보조"
+      ],
+  };
+
+  for (
+    let pattern = 0;
+    pattern < PATTERN_EFFECTS.length;
+    pattern += 1
+  ) {
+    const count =
+      patternCounts[pattern] || 0;
+
+    if (count === 0) {
+      continue;
+    }
+
+    const effect =
+      PATTERN_EFFECTS[pattern];
+
+    park[effect.park] +=
+      count;
+
+    liu[effect.liu] +=
+      count;
+  }
+
+  const parkValues =
+    Object.values(park);
+
+  const liuValues =
+    Object.values(liu);
+
+  const parkRange =
+    getRange(parkValues);
+
+  const liuRange =
+    getRange(liuValues);
+
+  const parkAverage =
+    parkValues.reduce(
+      (sum, value) =>
+        sum + value,
+      0,
+    ) /
+    parkValues.length;
+
+  const liuAverage =
+    liuValues.reduce(
+      (sum, value) =>
+        sum + value,
+      0,
+    ) /
+    liuValues.length;
+
+  const parkVariance =
+    parkValues.reduce(
+      (sum, value) =>
+        sum +
+        Math.pow(
+          value - parkAverage,
+          2,
+        ),
+      0,
+    );
+
+  const liuVariance =
+    liuValues.reduce(
+      (sum, value) =>
+        sum +
+        Math.pow(
+          value - liuAverage,
+          2,
+        ),
+      0,
+    );
+
+  return {
+    park,
+    liu,
+    parkRange,
+    liuRange,
+    parkVariance,
+    liuVariance,
+  };
+}
+
+
+function comparePatternResults(
+  a,
+  b,
+) {
+  if (
+    a.parkRange !==
+    b.parkRange
+  ) {
+    return (
+      a.parkRange -
+      b.parkRange
+    );
+  }
+
+  if (
+    a.liuRange !==
+    b.liuRange
+  ) {
+    return (
+      a.liuRange -
+      b.liuRange
+    );
+  }
+
+  if (
+    a.parkVariance !==
+    b.parkVariance
+  ) {
+    return (
+      a.parkVariance -
+      b.parkVariance
+    );
+  }
+
+  return (
+    a.liuVariance -
+    b.liuVariance
   );
 }
 
 
-function getBowlHelperCounts(
-  counts,
+function findBestPatternQuotas(
+  startingCounts,
+  totalDays,
 ) {
-  return MAIN_WORKERS.map(
-    (worker) =>
-      counts[worker]["볼분리 보조"],
-  );
-}
+  let best = null;
 
-
-function getLiuCounts(
-  counts,
-) {
-  return LIU_JOBS.map(
-    (job) =>
-      counts["류"][job],
-  );
-}
-
-
-function getParkCounts(
-  counts,
-) {
-  return PARK_ALLOWED_JOBS.map(
-    (job) =>
-      counts["박"][job],
-  );
-}
-
-
-function getMainExtraCounts(
-  counts,
-) {
-  return MAIN_WORKERS.map(
-    (worker) => {
-      let total = 0;
-
+  /*
+   * 4개 패턴의 총합이 totalDays가 되도록
+   * 가능한 정수 조합을 모두 검사한다.
+   * 31일 기준으로도 수만 개 수준이라 충분히 가볍다.
+   */
+  for (
+    let p0 = 0;
+    p0 <= totalDays;
+    p0 += 1
+  ) {
+    for (
+      let p1 = 0;
+      p1 <= totalDays - p0;
+      p1 += 1
+    ) {
       for (
-        const job of LIU_JOBS
+        let p2 = 0;
+        p2 <= totalDays - p0 - p1;
+        p2 += 1
       ) {
-        total +=
-          counts[worker][job];
-      }
+        const p3 =
+          totalDays -
+          p0 -
+          p1 -
+          p2;
 
-      return total;
-    },
-  );
+        const patternCounts = [
+          p0,
+          p1,
+          p2,
+          p3,
+        ];
+
+        const result =
+          calculatePatternResult(
+            startingCounts,
+            patternCounts,
+          );
+
+        if (
+          !best ||
+          comparePatternResults(
+            result,
+            best.result,
+          ) < 0
+        ) {
+          best = {
+            patternCounts,
+            result,
+          };
+        }
+      }
+    }
+  }
+
+  if (!best) {
+    throw new Error(
+      "월간 박/류 업무 균형을 위한 패턴을 계산하지 못했습니다.",
+    );
+  }
+
+  return best;
 }
 
 
 /* =========================================================
- * 김/탁/임 업무별 균형
+ * 김 / 탁 / 임 업무 균형
  * ======================================================= */
 
-/*
- * 각 업무에 대해 김/탁/임의 횟수 차이를 계산한다.
- *
- * 예:
- *
- * 설거지 1 / 1 / 3
- * → range = 2
- *
- * 분쇄   1 / 0 / 4
- * → range = 4
- *
- * 이런 차이를 직접 강하게 줄인다.
- */
-function calculateMainJobBalancePenalty(
+function getMainJobBalancePenalty(
   counts,
 ) {
   let penalty = 0;
@@ -327,30 +606,20 @@ function calculateMainJobBalancePenalty(
   for (
     const job of JOBS
   ) {
-    const values =
-      MAIN_WORKERS.map(
-        (worker) =>
-          counts[worker][job],
-      );
-
-    const range =
-      getRange(values);
-
     penalty +=
-      range;
+      getRange(
+        MAIN_WORKERS.map(
+          (worker) =>
+            counts[worker][job],
+        ),
+      );
   }
 
   return penalty;
 }
 
 
-/*
- * 김/탁/임의 업무 분포를 더 세밀하게 평가한다.
- *
- * range만 같아도 분포가 다른 경우가 있어서
- * 편차 제곱합도 보조적으로 사용한다.
- */
-function calculateMainJobVariancePenalty(
+function getMainJobVariancePenalty(
   counts,
 ) {
   let penalty = 0;
@@ -387,32 +656,33 @@ function calculateMainJobVariancePenalty(
 }
 
 
-/*
- * 김/탁/임의 전체 업무량 자체도 균등하게 한다.
- *
- * 각 사람이 맡은 총 업무 횟수의 차이를 평가한다.
- */
-function calculateMainTotalBalancePenalty(
+function getMainExtraCounts(
   counts,
 ) {
-  const totals =
-    MAIN_WORKERS.map(
-      (worker) => {
-        let total = 0;
+  return MAIN_WORKERS.map(
+    (worker) => {
+      let total = 0;
 
-        for (
-          const job of JOBS
-        ) {
-          total +=
-            counts[worker][job];
-        }
+      for (
+        const job of LIU_JOBS
+      ) {
+        total +=
+          counts[worker][job];
+      }
 
-        return total;
-      },
-    );
+      return total;
+    },
+  );
+}
 
+
+function getMainExtraRange(
+  counts,
+) {
   return getRange(
-    totals,
+    getMainExtraCounts(
+      counts,
+    ),
   );
 }
 
@@ -421,50 +691,25 @@ function calculateMainTotalBalancePenalty(
  * 연속 업무
  * ======================================================= */
 
-function calculateFullConsecutivePenalty(
-  schedule,
+function calculateDayPairConsecutivePenalty(
+  previous,
+  current,
 ) {
-  if (
-    !Array.isArray(schedule) ||
-    schedule.length < 2
-  ) {
+  if (!previous) {
     return 0;
   }
 
   let penalty = 0;
 
   for (
-    let index = 1;
-    index < schedule.length;
-    index += 1
+    const job of JOBS
   ) {
-    const previous =
-      schedule[index - 1];
-
-    const current =
-      schedule[index];
-
-    for (
-      const worker of WORKERS
+    if (
+      previous[job] &&
+      previous[job] ===
+        current[job]
     ) {
-      const previousJob =
-        getJobForWorker(
-          previous,
-          worker,
-        );
-
-      const currentJob =
-        getJobForWorker(
-          current,
-          worker,
-        );
-
-      if (
-        previousJob &&
-        previousJob === currentJob
-      ) {
-        penalty += 1;
-      }
+      penalty += 1;
     }
   }
 
@@ -473,105 +718,44 @@ function calculateFullConsecutivePenalty(
 
 
 /* =========================================================
- * 1차 가지치기 점수
+ * 상태 점수
  * ======================================================= */
 
-/*
- * 빔 서치 중간 단계에서 사용하는 점수.
- *
- * 최우선:
- *   1. 볼분리
- *   2. 볼분리 보조
- *
- * 그 다음:
- *   3. 김/탁/임 업무별 균형
- *   4. 류 균형
- *   5. 박 균형
- *   6. 연속 업무
- */
 function calculatePartialScore(
   state,
 ) {
   const counts =
     state.counts;
 
-  const bowlRange =
-    getRange(
-      getBowlCounts(
-        counts,
-      ),
-    );
-
-  const helperRange =
-    getRange(
-      getBowlHelperCounts(
-        counts,
-      ),
-    );
-
   const mainJobBalance =
-    calculateMainJobBalancePenalty(
+    getMainJobBalancePenalty(
       counts,
     );
 
-  const liuRange =
-    getRange(
-      getLiuCounts(
-        counts,
-      ),
+  const mainJobVariance =
+    getMainJobVariancePenalty(
+      counts,
     );
 
-  const parkRange =
-    getRange(
-      getParkCounts(
-        counts,
-      ),
-    );
-
-  const consecutive =
-    calculateFullConsecutivePenalty(
-      state.schedule,
+  const mainExtraRange =
+    getMainExtraRange(
+      counts,
     );
 
   return (
-    /*
-     * 1순위: 볼분리
-     */
-    bowlRange * 1000000000 +
+    mainJobBalance *
+      1000000 +
 
-    /*
-     * 2순위: 볼분리 보조
-     */
-    helperRange * 100000000 +
+    mainJobVariance *
+      10000 +
 
-    /*
-     * 3순위: 김/탁/임 업무별 균형
-     *
-     * 기존보다 훨씬 높은 비중을 준다.
-     */
-    mainJobBalance * 10000000 +
+    mainExtraRange *
+      100 +
 
-    /*
-     * 4순위: 류
-     */
-    liuRange * 100000 +
-
-    /*
-     * 5순위: 박
-     */
-    parkRange * 10000 +
-
-    /*
-     * 6순위: 연속 동일 업무
-     */
-    consecutive
+    state.consecutivePenalty
   );
 }
 
-
-/* =========================================================
- * 최종 점수
- * ======================================================= */
 
 function calculateFinalScore(
   state,
@@ -579,266 +763,32 @@ function calculateFinalScore(
   const counts =
     state.counts;
 
-  /*
-   * -------------------------------------------------------
-   * 1. 볼분리
-   * -------------------------------------------------------
-   */
-  const bowlRange =
-    getRange(
-      getBowlCounts(
-        counts,
-      ),
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 2. 볼분리 보조
-   * -------------------------------------------------------
-   */
-  const helperRange =
-    getRange(
-      getBowlHelperCounts(
-        counts,
-      ),
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 3. 김/탁/임 업무별 균형
-   * -------------------------------------------------------
-   */
   const mainJobBalance =
-    calculateMainJobBalancePenalty(
+    getMainJobBalancePenalty(
       counts,
     );
 
   const mainJobVariance =
-    calculateMainJobVariancePenalty(
-      counts,
-    );
-
-  const mainTotalBalance =
-    calculateMainTotalBalancePenalty(
-      counts,
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 4. 류
-   * -------------------------------------------------------
-   */
-  const liuCounts =
-    getLiuCounts(
-      counts,
-    );
-
-  const liuRange =
-    getRange(
-      liuCounts,
-    );
-
-  const liuAverage =
-    liuCounts.reduce(
-      (sum, value) =>
-        sum + value,
-      0,
-    ) /
-    liuCounts.length;
-
-  const liuVariance =
-    liuCounts.reduce(
-      (sum, value) =>
-        sum +
-        Math.pow(
-          value -
-            liuAverage,
-          2,
-        ),
-      0,
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 5. 박
-   * -------------------------------------------------------
-   */
-  const parkCounts =
-    getParkCounts(
-      counts,
-    );
-
-  const parkRange =
-    getRange(
-      parkCounts,
-    );
-
-  const parkAverage =
-    parkCounts.reduce(
-      (sum, value) =>
-        sum + value,
-      0,
-    ) /
-    parkCounts.length;
-
-  const parkVariance =
-    parkCounts.reduce(
-      (sum, value) =>
-        sum +
-        Math.pow(
-          value -
-            parkAverage,
-          2,
-        ),
-      0,
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 6. 김/탁/임이 류 가능 업무를 대신 맡는 양
-   * -------------------------------------------------------
-   */
-  const mainExtraValues =
-    getMainExtraCounts(
+    getMainJobVariancePenalty(
       counts,
     );
 
   const mainExtraRange =
-    getRange(
-      mainExtraValues,
+    getMainExtraRange(
+      counts,
     );
 
-
-  /*
-   * -------------------------------------------------------
-   * 7. 김/탁/임 각 업무의 전체 spread
-   * -------------------------------------------------------
-   *
-   * 이미 mainJobBalance에서 계산하지만,
-   * 각 업무별 차이를 다시 한번 최종 점수에 반영한다.
-   */
-  let mainJobSpread =
-    0;
-
-  for (
-    const job of JOBS
-  ) {
-    mainJobSpread +=
-      getRange(
-        MAIN_WORKERS.map(
-          (worker) =>
-            counts[worker][job],
-        ),
-      );
-  }
-
-
-  /*
-   * -------------------------------------------------------
-   * 8. 전체 연속 동일업무
-   * -------------------------------------------------------
-   */
-  const consecutive =
-    calculateFullConsecutivePenalty(
-      state.schedule,
-    );
-
-
-  /*
-   * -------------------------------------------------------
-   * 최종 우선순위
-   *
-   * 숫자가 클수록 훨씬 큰 우선순위
-   *
-   * 1. 볼분리
-   * 2. 볼분리 보조
-   * 3. 김/탁/임 업무별 균형
-   * 4. 김/탁/임 업무별 세부 분산
-   * 5. 김/탁/임 총업무 균형
-   * 6. 류
-   * 7. 박
-   * 8. 기타
-   * -------------------------------------------------------
-   */
   return (
-    /*
-     * 1순위
-     */
-    bowlRange *
-      1000000000000 +
-
-    /*
-     * 2순위
-     */
-    helperRange *
-      100000000000 +
-
-    /*
-     * 3순위
-     *
-     * 김/탁/임의 각 업무 차이를
-     * 볼분리 다음으로 강하게 최소화
-     */
     mainJobBalance *
-      10000000000 +
-
-    /*
-     * 4순위
-     */
-    mainJobSpread *
       1000000000 +
 
-    /*
-     * 5순위
-     */
     mainJobVariance *
-      100000000 +
-
-    /*
-     * 6순위
-     */
-    mainTotalBalance *
-      10000000 +
-
-    /*
-     * 7순위
-     */
-    mainExtraRange *
       1000000 +
 
-    /*
-     * 8순위
-     */
-    liuRange *
-      100000 +
-
-    /*
-     * 9순위
-     */
-    parkRange *
+    mainExtraRange *
       10000 +
 
-    /*
-     * 10순위
-     */
-    liuVariance *
-      1000 +
-
-    /*
-     * 11순위
-     */
-    parkVariance *
-      100 +
-
-    /*
-     * 12순위
-     */
-    consecutive
+    state.consecutivePenalty
   );
 }
 
@@ -853,38 +803,6 @@ function createStateSignature(
   const counts =
     state.counts;
 
-  const bowl =
-    getBowlCounts(
-      counts,
-    ).join(",");
-
-  const helper =
-    getBowlHelperCounts(
-      counts,
-    ).join(",");
-
-  const liu =
-    getLiuCounts(
-      counts,
-    ).join(",");
-
-  const park =
-    getParkCounts(
-      counts,
-    ).join(",");
-
-  const main =
-    getMainExtraCounts(
-      counts,
-    ).join(",");
-
-  /*
-   * 김/탁/임 각 업무별 현재 분포도
-   * 상태 시그니처에 포함시킨다.
-   *
-   * 이렇게 해야 서로 다른 업무 분포를 가진
-   * 상태가 같은 상태로 합쳐지는 것을 줄일 수 있다.
-   */
   const mainJobs =
     JOBS.map(
       (job) =>
@@ -894,6 +812,9 @@ function createStateSignature(
         ).join(","),
     ).join(";");
 
+  const patterns =
+    state.patternCounts.join(",");
+
   let last = "";
 
   if (
@@ -902,19 +823,13 @@ function createStateSignature(
     last =
       JOBS.map(
         (job) =>
-          state.lastAssignment[
-            job
-          ],
+          state.lastAssignment[job],
       ).join(",");
   }
 
   return [
-    bowl,
-    helper,
+    patterns,
     mainJobs,
-    liu,
-    park,
-    main,
     last,
   ].join("|");
 }
@@ -955,8 +870,7 @@ function pruneStates(
 
     group.sort(
       (a, b) =>
-        a.score -
-        b.score,
+        a.score - b.score,
     );
 
     if (
@@ -985,8 +899,7 @@ function pruneStates(
 
   flattened.sort(
     (a, b) =>
-      a.score -
-      b.score,
+      a.score - b.score,
   );
 
   return flattened
@@ -1039,6 +952,17 @@ export function optimizeMonth(
     );
   }
 
+  const totalDays =
+    dates.length;
+
+  const patternPlan =
+    findBestPatternQuotas(
+      normalizeWorkerCounts(
+        startingCounts,
+      ),
+      totalDays,
+    );
+
   let states = [
     {
       schedule: [],
@@ -1050,6 +974,16 @@ export function optimizeMonth(
 
       lastAssignment:
         null,
+
+      consecutivePenalty:
+        0,
+
+      patternCounts: [
+        0,
+        0,
+        0,
+        0,
+      ],
     },
   ];
 
@@ -1066,19 +1000,54 @@ export function optimizeMonth(
       for (
         const candidate of dailyCandidates
       ) {
+        const pattern =
+          candidate.pattern;
+
+        const used =
+          state.patternCounts[
+            pattern
+          ];
+
+        const quota =
+          patternPlan.patternCounts[
+            pattern
+          ];
+
+        /*
+         * 목표보다 해당 패턴을 많이 사용할 수 없다.
+         */
+        if (
+          used >= quota
+        ) {
+          continue;
+        }
+
+        const nextPatternCounts =
+          state.patternCounts.slice();
+
+        nextPatternCounts[
+          pattern
+        ] += 1;
+
         const nextSchedule = [
           ...state.schedule,
 
           {
             ...dates[index],
-            ...candidate,
+            ...candidate.assignment,
           },
         ];
 
         const nextCounts =
-          addAssignmentToCounts(
+          applyAssignmentFast(
             state.counts,
-            candidate,
+            candidate.assignment,
+          );
+
+        const pairPenalty =
+          calculateDayPairConsecutivePenalty(
+            state.lastAssignment,
+            candidate.assignment,
           );
 
         nextStates.push({
@@ -1089,7 +1058,14 @@ export function optimizeMonth(
             nextCounts,
 
           lastAssignment:
-            candidate,
+            candidate.assignment,
+
+          consecutivePenalty:
+            state.consecutivePenalty +
+            pairPenalty,
+
+          patternCounts:
+            nextPatternCounts,
         });
       }
     }
@@ -1108,6 +1084,12 @@ export function optimizeMonth(
     }
   }
 
+  /*
+   * 여기까지 온 모든 state는
+   * 전체 날짜 수와 quota의 합이 같고,
+   * 각 패턴 quota를 초과하지 않았으므로
+   * 최종적으로 quota를 모두 충족한다.
+   */
   states.sort(
     (a, b) =>
       calculateFinalScore(a) -
@@ -1148,9 +1130,6 @@ export function validateOriginalSchedule(
           day?.[job],
       );
 
-    /*
-     * 모든 업무에 작업자가 있는지
-     */
     if (
       assignedWorkers.some(
         (worker) =>
@@ -1164,9 +1143,6 @@ export function validateOriginalSchedule(
       continue;
     }
 
-    /*
-     * 하루에 작업자가 중복되지 않는지
-     */
     if (
       new Set(
         assignedWorkers,
@@ -1178,9 +1154,6 @@ export function validateOriginalSchedule(
       );
     }
 
-    /*
-     * 업무 제한 규칙
-     */
     for (
       const job of JOBS
     ) {
@@ -1208,9 +1181,6 @@ export function validateOriginalSchedule(
  * 오래된 기록 정리
  * ======================================================= */
 
-/*
- * 보관기간을 벗어난 history는 baseline으로 압축한다.
- */
 export function cleanupOldHistory(
   referenceYear,
   referenceMonth,
@@ -1242,9 +1212,7 @@ export function cleanupOldHistory(
     const [
       monthKey,
       monthData,
-    ] of Object.entries(
-      history,
-    )
+    ] of Object.entries(history)
   ) {
     if (
       keep.has(monthKey)

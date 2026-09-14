@@ -3,28 +3,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  DATA_VERSION,
+  RETENTION_MONTHS,
+  WORKERS,
+  JOBS,
+} from "../js/config.js";
+
 const DATA_FILE = path.resolve(
   "data",
   "history.json",
 );
-
-const RETENTION_MONTHS = 6;
-
-const WORKERS = [
-  "김",
-  "탁",
-  "임",
-  "박",
-  "류",
-];
-
-const JOBS = [
-  "볼분리",
-  "볼분리 보조",
-  "설거지 및 성형보조",
-  "분쇄 및 성형보조",
-  "성형 및 분쇄보조",
-];
 
 function createEmptyCounts() {
   const result = {};
@@ -191,7 +180,7 @@ function main() {
     );
   }
 
-  data.version = 2;
+  data.version = DATA_VERSION;
   data.retentionMonths =
     RETENTION_MONTHS;
 

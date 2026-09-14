@@ -1,0 +1,8 @@
+{
+  "name": "assignment-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prune-history": "node scripts/prune-history.mjs"
+  }
+}

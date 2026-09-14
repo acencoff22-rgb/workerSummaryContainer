@@ -258,71 +258,86 @@ export function handleImport(
     input?.files?.[0];
 
   if (!file) {
-    return;
+    return Promise.resolve(
+      false,
+    );
   }
 
-  const reader =
-    new FileReader();
+  return new Promise(
+    (resolve) => {
+      const reader =
+        new FileReader();
 
-  reader.onload =
-    () => {
-      try {
-        const text =
-          String(
-            reader.result ?? "",
+      reader.onload =
+        () => {
+          let imported = false;
+
+          try {
+            const text =
+              String(
+                reader.result ??
+                  "",
+              );
+
+            const parsed =
+              JSON.parse(text);
+
+            const normalized =
+              normalizeData(
+                parsed,
+              );
+
+            setAppData(
+              normalized,
+            );
+
+            saveLocalData(
+              normalized,
+            );
+
+            resetRuntimeState();
+
+            alert(
+              "데이터를 복원했습니다.",
+            );
+
+            imported = true;
+          } catch (error) {
+            console.error(
+              "JSON 복원 실패:",
+              error,
+            );
+
+            alert(
+              "올바른 JSON 데이터가 아닙니다.",
+            );
+          } finally {
+            if (input) {
+              input.value = "";
+            }
+
+            resolve(imported);
+          }
+        };
+
+      reader.onerror =
+        () => {
+          alert(
+            "파일을 읽지 못했습니다.",
           );
 
-        const parsed =
-          JSON.parse(text);
+          if (input) {
+            input.value = "";
+          }
 
-        const normalized =
-          normalizeData(
-            parsed,
-          );
+          resolve(false);
+        };
 
-        setAppData(
-          normalized,
-        );
-
-        saveLocalData(
-          normalized,
-        );
-
-        resetRuntimeState();
-
-        alert(
-          "데이터를 복원했습니다.",
-        );
-      } catch (error) {
-        console.error(
-          "JSON 복원 실패:",
-          error,
-        );
-
-        alert(
-          "올바른 JSON 데이터가 아닙니다.",
-        );
-      } finally {
-        if (input) {
-          input.value = "";
-        }
-      }
-    };
-
-  reader.onerror =
-    () => {
-      alert(
-        "파일을 읽지 못했습니다.",
+      reader.readAsText(
+        file,
+        "utf-8",
       );
-
-      if (input) {
-        input.value = "";
-      }
-    };
-
-  reader.readAsText(
-    file,
-    "utf-8",
+    },
   );
 }
 

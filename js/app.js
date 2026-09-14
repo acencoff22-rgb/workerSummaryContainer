@@ -30,6 +30,7 @@ import {
 import {
   getMonthKey,
   formatDateKey,
+  getDaysInMonth,
 } from "./utils.js";
 
 import {
@@ -89,6 +90,173 @@ import {
 
 
 let initialized = false;
+
+let isGenerating = false;
+
+let optimizeWorker = null;
+
+
+/*
+ * 배정표 생성은 계산량이 많아 수 초~수십 초가 걸릴 수 있다.
+ * 메인 스레드에서 그대로 돌리면 그동안 화면이 멈춘 것처럼
+ * 보이므로, 가능하면 별도 Web Worker에서 계산하고
+ * 메인 스레드는 계속 응답 가능한 상태로 둔다.
+ *
+ * (구형 브라우저 등 Worker를 못 쓰는 환경에서는
+ * 기존처럼 메인 스레드에서 계산하는 방식으로 대체한다.)
+ */
+function getOptimizeWorker() {
+  if (typeof Worker === "undefined") {
+    return null;
+  }
+
+  if (optimizeWorker) {
+    return optimizeWorker;
+  }
+
+  try {
+    optimizeWorker = new Worker(
+      new URL(
+        "./optimize-worker.js",
+        import.meta.url,
+      ),
+      { type: "module" },
+    );
+  } catch (error) {
+    console.error(
+      "워커 생성 실패, 메인 스레드에서 계산합니다:",
+      error,
+    );
+
+    optimizeWorker = null;
+  }
+
+  return optimizeWorker;
+}
+
+
+function runOptimizeMonthAsync(
+  params,
+) {
+  const worker =
+    getOptimizeWorker();
+
+  if (!worker) {
+    return Promise.resolve().then(
+      () =>
+        optimizeMonth(
+          params.year,
+          params.month,
+          params.startDay,
+          params.endDay,
+          params.startingCounts,
+        ),
+    );
+  }
+
+  return new Promise(
+    (resolve, reject) => {
+      const handleMessage = (
+        event,
+      ) => {
+        cleanup();
+
+        if (event.data?.ok) {
+          resolve(
+            event.data.schedule,
+          );
+        } else {
+          reject(
+            new Error(
+              event.data
+                ?.message ||
+                "배정표 생성 중 오류가 발생했습니다.",
+            ),
+          );
+        }
+      };
+
+      const handleError = (
+        error,
+      ) => {
+        cleanup();
+
+        /*
+         * Web Worker 자체가 실패한 경우에는
+         * 고장난 Worker를 다음 생성에 재사용하지 않는다.
+         */
+        try {
+          worker.terminate();
+        } catch (terminateError) {
+          console.error(
+            "워커 종료 실패:",
+            terminateError,
+          );
+        }
+
+        optimizeWorker = null;
+
+        /*
+         * Worker 로딩/실행 오류라면
+         * 메인 스레드에서 한 번 재시도한다.
+         */
+        try {
+          const schedule =
+            optimizeMonth(
+              params.year,
+              params.month,
+              params.startDay,
+              params.endDay,
+              params.startingCounts,
+            );
+
+          resolve(schedule);
+        } catch (fallbackError) {
+          console.error(
+            "메인 스레드 재시도 실패:",
+            fallbackError,
+          );
+
+          reject(
+            fallbackError ||
+            error ||
+            new Error(
+              "배정표 생성 중 오류가 발생했습니다.",
+            ),
+          );
+        }
+      };
+
+      function cleanup() {
+        worker.removeEventListener(
+          "message",
+          handleMessage,
+        );
+
+        worker.removeEventListener(
+          "error",
+          handleError,
+        );
+      }
+
+      worker.addEventListener(
+        "message",
+        handleMessage,
+      );
+
+      worker.addEventListener(
+        "error",
+        handleError,
+      );
+
+      try {
+        worker.postMessage(params);
+      } catch (error) {
+        handleError(error);
+      }
+    },
+  );
+}
 
 
 function updateDataStatus() {
@@ -181,9 +349,7 @@ function refreshAll() {
 }
 
 
-function refreshLeaveAndCalendar() {
-  renderLeaveList();
-
+function refreshScheduleOrCalendar() {
   if (
     currentOriginalSchedule.length > 0
   ) {
@@ -193,6 +359,12 @@ function refreshLeaveAndCalendar() {
   }
 
   updateDataStatus();
+}
+
+
+function refreshLeaveAndCalendar() {
+  renderLeaveList();
+  refreshScheduleOrCalendar();
 }
 
 
@@ -254,7 +426,11 @@ function handleResetNameSettingsAndRender() {
 }
 
 
-function handleGenerate() {
+async function handleGenerate() {
+  if (isGenerating) {
+    return;
+  }
+
   let inputs;
 
   try {
@@ -275,6 +451,11 @@ function handleGenerate() {
       "statusText",
     );
 
+  const generateButton =
+    document.getElementById(
+      "generateButton",
+    );
+
   if (status) {
     status.textContent =
       "월 전체 최적화 중...";
@@ -284,172 +465,250 @@ function handleGenerate() {
     );
   }
 
-  window.setTimeout(
-    () => {
-      try {
-        const {
+  isGenerating = true;
+
+  if (generateButton) {
+    generateButton.disabled =
+      true;
+  }
+
+  try {
+    const {
+      year,
+      month,
+      startDay,
+      endDay,
+    } = inputs;
+
+    updateCalendarToGeneratedMonth();
+
+    cleanupOldHistory(
+      year,
+      month,
+    );
+
+    const startingCounts =
+      getStartingCountsForMonth(
+        year,
+        month,
+      );
+
+    const schedule =
+      await runOptimizeMonthAsync(
+        {
           year,
           month,
           startDay,
           endDay,
-        } = inputs;
+          startingCounts,
+        },
+      );
 
-        updateCalendarToGeneratedMonth();
+    const originalCounts =
+      calculateOriginalCounts(
+        schedule,
+      );
 
-        cleanupOldHistory(
-          year,
-          month,
-        );
+    const scheduleWithLeave =
+      schedule.map(
+        (day) => {
+          const dateKey =
+            formatDateKey(
+              day.year,
+              day.month,
+              day.day,
+            );
 
-        const startingCounts =
-          getStartingCountsForMonth(
-            year,
-            month,
-          );
+          return {
+            ...day,
 
-        const schedule =
-          optimizeMonth(
-            year,
-            month,
-            startDay,
-            endDay,
-            startingCounts,
-          );
+            leaveWorkers: [
+              ...(
+                appData.leave?.[
+                  dateKey
+                ] || []
+              ),
+            ],
+          };
+        },
+      );
 
-        const originalCounts =
-          calculateOriginalCounts(
-            schedule,
-          );
+    setCurrentOriginalSchedule(
+      schedule,
+    );
 
-        const scheduleWithLeave =
-          schedule.map(
-            (day) => {
-              const dateKey =
-                formatDateKey(
-                  day.year,
-                  day.month,
-                  day.day,
-                );
+    setCurrentOriginalCounts(
+      originalCounts,
+    );
 
-              return {
-                ...day,
+    setCurrentSchedule(
+      scheduleWithLeave,
+    );
 
-                leaveWorkers: [
-                  ...(
-                    appData.leave?.[
-                      dateKey
-                    ] || []
-                  ),
-                ],
-              };
-            },
-          );
+    const monthKey =
+      getMonthKey(
+        year,
+        month,
+      );
 
-        setCurrentOriginalSchedule(
-          schedule,
-        );
+    const monthLeave = {};
 
-        setCurrentOriginalCounts(
-          originalCounts,
-        );
-
-        setCurrentSchedule(
-          scheduleWithLeave,
-        );
-
-        const monthKey =
-          getMonthKey(
-            year,
-            month,
-          );
-
-        const monthLeave = {};
-
-        for (
-          const [
-            dateKey,
-            workers,
-          ] of Object.entries(
-            appData.leave || {},
-          )
-        ) {
-          if (
-            dateKey.startsWith(
-              `${monthKey}-`,
-            )
-          ) {
-            monthLeave[dateKey] = [
-              ...workers,
-            ];
-          }
-        }
-
-        const nextHistory = {
-          ...(appData.history || {}),
-        };
-
-        nextHistory[monthKey] = {
-          schedule:
-            deepClone(
-              schedule,
-            ),
-
-          originalCounts:
-            deepClone(
-              originalCounts,
-            ),
-
-          leave:
-            monthLeave,
-        };
-
-        const nextData = {
-          ...appData,
-
-          history:
-            nextHistory,
-        };
-
-        setAppData(
-          nextData,
-        );
-
-        cleanupOldHistory(
-          year,
-          month,
-        );
-
-        saveLocalData(
-          appData,
-        );
-
-        renderSchedule();
-        renderLeaveList();
-        updateDataStatus();
-      } catch (error) {
-        console.error(
-          "배정 실패:",
-          error,
-        );
-
-        if (status) {
-          status.textContent =
-            "배정 실패";
-
-          status.classList.remove(
-            "success",
-          );
-        }
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : "배정표 생성 중 오류가 발생했습니다.",
-        );
+    for (
+      const [
+        dateKey,
+        workers,
+      ] of Object.entries(
+        appData.leave || {},
+      )
+    ) {
+      if (
+        dateKey.startsWith(
+          `${monthKey}-`,
+        )
+      ) {
+        monthLeave[dateKey] = [
+          ...workers,
+        ];
       }
-    },
-    20,
-  );
+    }
+
+    const nextHistory = {
+      ...(appData.history || {}),
+    };
+
+    nextHistory[monthKey] = {
+      schedule:
+        deepClone(
+          schedule,
+        ),
+
+      originalCounts:
+        deepClone(
+          originalCounts,
+        ),
+
+      leave:
+        monthLeave,
+    };
+
+    const nextData = {
+      ...appData,
+
+      history:
+        nextHistory,
+    };
+
+    setAppData(
+      nextData,
+    );
+
+    cleanupOldHistory(
+      year,
+      month,
+    );
+
+    saveLocalData(
+      appData,
+    );
+
+    renderSchedule();
+    renderLeaveList();
+    updateDataStatus();
+  } catch (error) {
+    console.error(
+      "배정 실패:",
+      error,
+    );
+
+    if (status) {
+      status.textContent =
+        "배정 실패";
+
+      status.classList.remove(
+        "success",
+      );
+    }
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "배정표 생성 중 오류가 발생했습니다.",
+    );
+  } finally {
+    isGenerating = false;
+
+    if (generateButton) {
+      generateButton.disabled =
+        false;
+    }
+  }
+}
+
+
+/*
+ * index.html의 연/월/시작일/종료일 입력값은
+ * 처음 배포됐던 시점(2026년 9월)의 값이 그대로
+ * 박혀 있어서, 다음 달부터는 매번 손으로 고쳐야 했다.
+ *
+ * 앱을 열 때 오늘 날짜 기준으로 자동으로 채워준다.
+ * (사용자가 값을 바꾼 뒤에는 그 값을 그대로 존중한다 —
+ * 이 함수는 초기화 시점에 한 번만 호출된다.)
+ */
+function setDefaultDateInputsToToday() {
+  const today =
+    new Date();
+
+  const year =
+    today.getFullYear();
+
+  const month =
+    today.getMonth() + 1;
+
+  const daysInMonth =
+    getDaysInMonth(
+      year,
+      month,
+    );
+
+  const yearInput =
+    document.getElementById(
+      "yearInput",
+    );
+
+  const monthInput =
+    document.getElementById(
+      "monthInput",
+    );
+
+  const startDayInput =
+    document.getElementById(
+      "startDayInput",
+    );
+
+  const endDayInput =
+    document.getElementById(
+      "endDayInput",
+    );
+
+  if (yearInput) {
+    yearInput.value =
+      String(year);
+  }
+
+  if (monthInput) {
+    monthInput.value =
+      String(month);
+  }
+
+  if (startDayInput) {
+    startDayInput.value =
+      "1";
+  }
+
+  if (endDayInput) {
+    endDayInput.value =
+      String(daysInMonth);
+  }
 }
 
 
@@ -647,14 +906,14 @@ function handleClearLeavesAndRender() {
 async function handleImportAndRefresh(
   event,
 ) {
-  handleImport(event);
+  const imported =
+    await handleImport(
+      event,
+    );
 
-  window.setTimeout(
-    () => {
-      refreshAll();
-    },
-    50,
-  );
+  if (imported) {
+    refreshAll();
+  }
 }
 
 
@@ -990,6 +1249,8 @@ async function initializeApp() {
   renderEmptySummaries();
 
   updateDataStatus();
+
+  setDefaultDateInputsToToday();
 
   updateCalendarToGeneratedMonth();
   renderCalendar();

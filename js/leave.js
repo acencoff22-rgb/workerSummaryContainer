@@ -249,7 +249,14 @@ export function deleteLeave(
 }
 
 
-export function renderLeaveList() {
+/*
+ * onDeleteLeave: 연차를 삭제했을 때 호출할 콜백(선택).
+ * 배정결과/달력이 이미 화면에 떠 있는 상태에서 연차를
+ * 지우면, 그 화면도 함께 최신 상태로 갱신하기 위해 쓴다.
+ */
+export function renderLeaveList(
+  onDeleteLeave,
+) {
   const container =
     document.getElementById(
       "leaveList",
@@ -356,7 +363,16 @@ export function renderLeaveList() {
       () => {
         deleteLeave(dateKey);
 
-        renderLeaveList();
+        renderLeaveList(
+          onDeleteLeave,
+        );
+
+        if (
+          typeof onDeleteLeave ===
+          "function"
+        ) {
+          onDeleteLeave();
+        }
       },
     );
 

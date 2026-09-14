@@ -15,11 +15,13 @@ import {
 import {
   createEmptyJobCounts,
   createEmptyWorkerCounts,
+  addWorkerCounts,
 } from "./data.js";
 
 import {
   validateOriginalSchedule,
   getJobForWorker,
+  getStartingCountsForMonth,
 } from "./assignment.js";
 
 import {
@@ -297,9 +299,31 @@ export function renderWorkerSummary() {
     return;
   }
 
+  /*
+   * "최근 6개월 상세 이력과 이전 기간 압축 누적값을
+   * 함께 반영합니다" 안내 문구대로,
+   * baseline + 최근 6개월 history + 이번 달 생성분을
+   * 모두 합산해서 보여준다.
+   *
+   * (예전에는 이번 달 생성분만 표시되고 있었다.)
+   */
+  const first =
+    currentOriginalSchedule[0];
+
+  const startingCounts =
+    first
+      ? getStartingCountsForMonth(
+          first.year,
+          first.month,
+        )
+      : createEmptyWorkerCounts();
+
   const counts =
-    currentOriginalCounts ||
-    createEmptyWorkerCounts();
+    addWorkerCounts(
+      startingCounts,
+      currentOriginalCounts ||
+        createEmptyWorkerCounts(),
+    );
 
   const wrapper =
     document.createElement(
