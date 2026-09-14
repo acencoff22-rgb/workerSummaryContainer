@@ -19,7 +19,8 @@
 - GitHub `data/history.json` 불러오기 및 저장 준비
 - 배정표 출력 / 달력 출력
 - 다크모드
-- Web Worker 자동 배정 + 실패/시간초과 시 fallback
+- Web Worker 자동 배정 + 최적화 실패 시 빔서치 안전망
+- Worker 시간초과 시 메인 스레드 재시도 없이 다시 시도 안내 (Worker 자체 오류일 때만 메인 스레드 1회 fallback)
 
 ## 구조
 
@@ -91,4 +92,5 @@ npm run prune-history
 npm run verify
 ```
 
-기본적인 월간 배정 범위와 규칙, 누적 데이터 계산을 자동으로 검사합니다.
+월간 배정 범위와 규칙, 누적 데이터 계산을 검사합니다.
+또한 fallback 경로 1회, 한 달 내 시작일·종료일 조합 465가지 전체, 36개월 연속 시뮬레이션을 포함합니다.

@@ -200,6 +200,22 @@ function runOptimizeMonthAsync(
         );
       };
 
+      /*
+       * 이 핸들러는 Worker "error" 이벤트, 즉 시간이 오래 걸린
+       * 게 아니라 Worker 자체가 죽은 경우다
+       * (optimize-worker.js 로드/모듈 import 실패, 배포 후
+       * 상대경로 문제 등). optimizeMonth()가 실행조차
+       * 안 됐을 가능성이 높으므로, 메인 스레드에서 (이미 로드된
+       * assignment.js로) 한 번 더 시도해볼 가치가 있다 —
+       * 다만 이 재시도도 실패하면 그대로 오류로 처리한다.
+       *
+       * ({ok:false} 메시지는 여기로 오지 않는다 — 그건 Worker
+       * 안에서 optimizeMonth()가 quota 방식과 빔서치 안전망을
+       * 이미 둘 다 시도해보고 실패한 경우라서, 같은 입력으로
+       * 메인 스레드에서 또 돌려도 대부분 같은 이유로 다시
+       * 실패한다. handleMessage의 reject 분기에서 재시도 없이
+       * 바로 오류로 처리한다.)
+       */
       const handleError = (
         error,
       ) => {
@@ -218,9 +234,6 @@ function runOptimizeMonthAsync(
 
         optimizeWorker = null;
 
-        /*
-         * Worker 오류는 메인 스레드에서 한 번 재시도한다.
-         */
         try {
           const schedule =
             optimizeMonth(
@@ -254,6 +267,17 @@ function runOptimizeMonthAsync(
         }
       };
 
+      /*
+       * Worker가 시간 안에 응답하지 않으면 워커를 종료하고
+       * 에러로 처리한다.
+       *
+       * (여기서는 메인 스레드로 재시도하지 않는다 — 이 시점까지
+       * 안 끝났다는 건 대부분 브라우저 탭이 백그라운드로 가서
+       * 워커가 멈췄거나 기기가 매우 느린 경우인데, 그 상태에서
+       * 똑같이 무거운 계산을 메인 스레드로 다시 돌리면 그동안
+       * 화면이 그대로 멈춰버려서 Worker로 분리한 의미가 없어진다.
+       * 사용자에게 다시 시도하도록 안내하는 쪽이 낫다.)
+       */
       const handleTimeout = () => {
         if (settled) {
           return;
@@ -270,34 +294,12 @@ function runOptimizeMonthAsync(
 
         optimizeWorker = null;
 
-        /*
-         * Worker가 너무 오래 응답하지 않으면
-         * 메인 스레드에서 한 번 재시도한다.
-         */
-        try {
-          const schedule =
-            optimizeMonth(
-              params.year,
-              params.month,
-              params.startDay,
-              params.endDay,
-              params.startingCounts,
-            );
-
-          finish(
-            resolve,
-            schedule,
-          );
-        } catch (error) {
-          finish(
-            reject,
-            error instanceof Error
-              ? error
-              : new Error(
-                  "배정표 생성 시간이 초과되었습니다.",
-                ),
-          );
-        }
+        finish(
+          reject,
+          new Error(
+            "배정표 생성 시간이 너무 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.",
+          ),
+        );
       };
 
       function cleanup() {
@@ -329,9 +331,15 @@ function runOptimizeMonthAsync(
         handleError,
       );
 
+      /*
+       * 새 계산 방식은 대부분 1초 안에 끝나지만, 누적치가 크게
+       * 어긋나 예전 빔서치 방식으로 넘어가는 드문 경우에는
+       * 수십 초가 걸릴 수 있다. 느린 기기까지 감안해 넉넉하게
+       * 2분으로 잡는다.
+       */
       timeoutId = window.setTimeout(
         handleTimeout,
-        60000,
+        120000,
       );
 
       try {
@@ -419,7 +427,7 @@ function updateNameSettingsStatus(
 function refreshAll() {
   renderNameSettings();
   updateLeaveWorkerLabels();
-  renderLeaveList();
+  renderLeaveList(refreshScheduleOrCalendar);
 
   if (
     currentOriginalSchedule.length > 0
@@ -448,7 +456,7 @@ function refreshScheduleOrCalendar() {
 
 
 function refreshLeaveAndCalendar() {
-  renderLeaveList();
+  renderLeaveList(refreshScheduleOrCalendar);
   refreshScheduleOrCalendar();
 }
 
@@ -473,7 +481,7 @@ function handleSaveNameSettingsAndRender() {
     renderCalendar();
   }
 
-  renderLeaveList();
+  renderLeaveList(refreshScheduleOrCalendar);
   updateDataStatus();
 
   updateNameSettingsStatus(
@@ -502,7 +510,7 @@ function handleResetNameSettingsAndRender() {
     renderCalendar();
   }
 
-  renderLeaveList();
+  renderLeaveList(refreshScheduleOrCalendar);
   updateDataStatus();
 
   updateNameSettingsStatus(
@@ -697,7 +705,7 @@ async function handleGenerate() {
     );
 
     renderSchedule();
-    renderLeaveList();
+    renderLeaveList(refreshScheduleOrCalendar);
     updateDataStatus();
   } catch (error) {
     console.error(
@@ -1342,7 +1350,7 @@ async function initializeApp() {
   renderNameSettings();
   updateLeaveWorkerLabels();
 
-  renderLeaveList();
+  renderLeaveList(refreshScheduleOrCalendar);
   renderEmptySummaries();
 
   updateDataStatus();
