@@ -9,7 +9,6 @@ import {
   setCurrentSchedule,
   setCurrentOriginalSchedule,
   setCurrentOriginalCounts,
-  setCopiedText,
   resetRuntimeState,
 } from "./state.js";
 
@@ -156,35 +155,58 @@ function runOptimizeMonthAsync(
 
   return new Promise(
     (resolve, reject) => {
+      let settled = false;
+      let timeoutId = null;
+
+      const finish = (
+        callback,
+        value,
+      ) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+
+        if (timeoutId !== null) {
+          window.clearTimeout(
+            timeoutId,
+          );
+          timeoutId = null;
+        }
+
+        cleanup();
+        callback(value);
+      };
+
       const handleMessage = (
         event,
       ) => {
-        cleanup();
-
         if (event.data?.ok) {
-          resolve(
+          finish(
+            resolve,
             event.data.schedule,
           );
-        } else {
-          reject(
-            new Error(
-              event.data
-                ?.message ||
-                "배정표 생성 중 오류가 발생했습니다.",
-            ),
-          );
+          return;
         }
+
+        finish(
+          reject,
+          new Error(
+            event.data
+              ?.message ||
+              "배정표 생성 중 오류가 발생했습니다.",
+          ),
+        );
       };
 
       const handleError = (
         error,
       ) => {
-        cleanup();
+        if (settled) {
+          return;
+        }
 
-        /*
-         * Web Worker 자체가 실패한 경우에는
-         * 고장난 Worker를 다음 생성에 재사용하지 않는다.
-         */
         try {
           worker.terminate();
         } catch (terminateError) {
@@ -197,7 +219,59 @@ function runOptimizeMonthAsync(
         optimizeWorker = null;
 
         /*
-         * Worker 로딩/실행 오류라면
+         * Worker 오류는 메인 스레드에서 한 번 재시도한다.
+         */
+        try {
+          const schedule =
+            optimizeMonth(
+              params.year,
+              params.month,
+              params.startDay,
+              params.endDay,
+              params.startingCounts,
+            );
+
+          finish(
+            resolve,
+            schedule,
+          );
+        } catch (fallbackError) {
+          console.error(
+            "메인 스레드 재시도 실패:",
+            fallbackError,
+          );
+
+          finish(
+            reject,
+            fallbackError instanceof Error
+              ? fallbackError
+              : error instanceof Error
+                ? error
+                : new Error(
+                    "배정표 생성 중 오류가 발생했습니다.",
+                  ),
+          );
+        }
+      };
+
+      const handleTimeout = () => {
+        if (settled) {
+          return;
+        }
+
+        try {
+          worker.terminate();
+        } catch (error) {
+          console.error(
+            "워커 시간초과 종료 실패:",
+            error,
+          );
+        }
+
+        optimizeWorker = null;
+
+        /*
+         * Worker가 너무 오래 응답하지 않으면
          * 메인 스레드에서 한 번 재시도한다.
          */
         try {
@@ -210,19 +284,18 @@ function runOptimizeMonthAsync(
               params.startingCounts,
             );
 
-          resolve(schedule);
-        } catch (fallbackError) {
-          console.error(
-            "메인 스레드 재시도 실패:",
-            fallbackError,
+          finish(
+            resolve,
+            schedule,
           );
-
-          reject(
-            fallbackError ||
-            error ||
-            new Error(
-              "배정표 생성 중 오류가 발생했습니다.",
-            ),
+        } catch (error) {
+          finish(
+            reject,
+            error instanceof Error
+              ? error
+              : new Error(
+                  "배정표 생성 시간이 초과되었습니다.",
+                ),
           );
         }
       };
@@ -237,6 +310,13 @@ function runOptimizeMonthAsync(
           "error",
           handleError,
         );
+
+        if (timeoutId !== null) {
+          window.clearTimeout(
+            timeoutId,
+          );
+          timeoutId = null;
+        }
       }
 
       worker.addEventListener(
@@ -247,6 +327,11 @@ function runOptimizeMonthAsync(
       worker.addEventListener(
         "error",
         handleError,
+      );
+
+      timeoutId = window.setTimeout(
+        handleTimeout,
+        60000,
       );
 
       try {
@@ -655,21 +740,6 @@ async function handleGenerate() {
  * 이 함수는 초기화 시점에 한 번만 호출된다.)
  */
 function setDefaultDateInputsToToday() {
-  const today =
-    new Date();
-
-  const year =
-    today.getFullYear();
-
-  const month =
-    today.getMonth() + 1;
-
-  const daysInMonth =
-    getDaysInMonth(
-      year,
-      month,
-    );
-
   const yearInput =
     document.getElementById(
       "yearInput",
@@ -690,22 +760,49 @@ function setDefaultDateInputsToToday() {
       "endDayInput",
     );
 
-  if (yearInput) {
+  /*
+   * HTML에 이미 기본값이 있으면 사용자가 정해둔 값을
+   * 덮어쓰지 않는다.
+   */
+  if (
+    yearInput?.value &&
+    monthInput?.value &&
+    startDayInput?.value &&
+    endDayInput?.value
+  ) {
+    return;
+  }
+
+  const today = new Date();
+
+  const year =
+    today.getFullYear();
+
+  const month =
+    today.getMonth() + 1;
+
+  const daysInMonth =
+    getDaysInMonth(
+      year,
+      month,
+    );
+
+  if (!yearInput?.value) {
     yearInput.value =
       String(year);
   }
 
-  if (monthInput) {
+  if (!monthInput?.value) {
     monthInput.value =
       String(month);
   }
 
-  if (startDayInput) {
+  if (!startDayInput?.value) {
     startDayInput.value =
       "1";
   }
 
-  if (endDayInput) {
+  if (!endDayInput?.value) {
     endDayInput.value =
       String(daysInMonth);
   }

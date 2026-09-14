@@ -290,6 +290,63 @@ export function normalizeData(input) {
     return createEmptyData();
   }
 
+  const history =
+    normalizeHistory(
+      input.history,
+    );
+
+  /*
+   * 이전 버전 데이터에서는 연차가
+   * history["YYYY-MM"].leave 안에만 들어 있을 수 있다.
+   * 현재 구조는 top-level leave를 사용하므로,
+   * 로드할 때 두 형식을 하나로 합쳐 호환성을 유지한다.
+   */
+  const leave =
+    normalizeLeaveMap(
+      input.leave,
+    );
+
+  for (
+    const monthData of Object.values(
+      history,
+    )
+  ) {
+    if (
+      !monthData?.leave
+    ) {
+      continue;
+    }
+
+    const monthLeave =
+      normalizeLeaveMap(
+        monthData.leave,
+      );
+
+    for (
+      const [
+        dateKey,
+        workers,
+      ] of Object.entries(
+        monthLeave,
+      )
+    ) {
+      if (
+        !leave[dateKey]
+      ) {
+        leave[dateKey] = [
+          ...workers,
+        ];
+      } else {
+        leave[dateKey] =
+          WORKERS.filter(
+            (worker) =>
+              leave[dateKey].includes(worker) ||
+              workers.includes(worker),
+          );
+      }
+    }
+  }
+
   return {
     version:
       DATA_VERSION,
@@ -307,15 +364,9 @@ export function normalizeData(input) {
         input.names,
       ),
 
-    history:
-      normalizeHistory(
-        input.history,
-      ),
+    history,
 
-    leave:
-      normalizeLeaveMap(
-        input.leave,
-      ),
+    leave,
   };
 }
 
