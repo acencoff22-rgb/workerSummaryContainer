@@ -16,6 +16,7 @@ import {
   createEmptyJobCounts,
   createEmptyWorkerCounts,
   addWorkerCounts,
+  calculateOriginalCounts,
 } from "./data.js";
 
 import {
@@ -287,9 +288,7 @@ export function renderWorkerSummary() {
     return;
   }
 
-  if (
-    currentOriginalSchedule.length === 0
-  ) {
+  if (currentOriginalSchedule.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         배정표를 생성하면 작업자별 횟수가 표시됩니다.
@@ -299,14 +298,6 @@ export function renderWorkerSummary() {
     return;
   }
 
-  /*
-   * "최근 6개월 상세 이력과 이전 기간 압축 누적값을
-   * 함께 반영합니다" 안내 문구대로,
-   * baseline + 최근 6개월 history + 이번 달 생성분을
-   * 모두 합산해서 보여준다.
-   *
-   * (예전에는 이번 달 생성분만 표시되고 있었다.)
-   */
   const first =
     currentOriginalSchedule[0];
 
@@ -329,129 +320,52 @@ export function renderWorkerSummary() {
     document.createElement(
       "div",
     );
+  wrapper.className = "worker-summary-tables";
+  wrapper.append(
+    buildWorkerCountTable("현재 일정 통계", calculateOriginalCounts(currentOriginalSchedule)),
+    buildWorkerCountTable("누적 현황", counts),
+  );
+  container.replaceChildren(wrapper);
+}
 
-  wrapper.className =
-    "worker-table-wrap";
 
-  const table =
-    document.createElement(
-      "table",
-    );
-
-  table.className =
-    "worker-table";
-
-  const thead =
-    document.createElement(
-      "thead",
-    );
-
-  const header =
-    document.createElement(
-      "tr",
-    );
-
-  const headers = [
-    "작업자",
-    ...JOBS.map(
-      getJobLabel,
-    ),
-    "총합",
-  ];
-
-  for (
-    const text of headers
-  ) {
-    const th =
-      document.createElement(
-        "th",
-      );
-
-    th.textContent =
-      text;
-
+function buildWorkerCountTable(title, counts) {
+  const section = document.createElement("section");
+  section.className = "worker-table-wrap";
+  const heading = document.createElement("h3");
+  heading.className = "worker-summary-heading";
+  heading.textContent = title;
+  const table = document.createElement("table");
+  table.className = "worker-table";
+  const thead = document.createElement("thead");
+  const header = document.createElement("tr");
+  for (const text of ["작업자", ...JOBS.map(getJobLabel), "총합"]) {
+    const th = document.createElement("th");
+    th.textContent = text;
     header.appendChild(th);
   }
-
   thead.appendChild(header);
-
-  const tbody =
-    document.createElement(
-      "tbody",
-    );
-
-  for (
-    const worker of WORKERS
-  ) {
-    const row =
-      document.createElement(
-        "tr",
-      );
-
-    const values = [
-      getWorkerLabel(worker),
-
-      ...JOBS.map(
-        (job) =>
-          counts[worker][job],
-      ),
-    ];
-
-    const total =
-      values
-        .slice(1)
-        .reduce(
-          (sum, value) =>
-            sum + Number(value || 0),
-          0,
-        );
-
-    values.push(total);
-
-    values.forEach(
-      (
-        value,
-        index,
-      ) => {
-        const td =
-          document.createElement(
-            "td",
-          );
-
-        if (
-          index ===
-          values.length - 1
-        ) {
-          const strong =
-            document.createElement(
-              "strong",
-            );
-
-          strong.textContent =
-            String(value);
-
-          td.appendChild(
-            strong,
-          );
-        } else {
-          td.textContent =
-            String(value);
-        }
-
-        row.appendChild(td);
-      },
-    );
-
+  const tbody = document.createElement("tbody");
+  for (const worker of WORKERS) {
+    const row = document.createElement("tr");
+    const taskCounts = JOBS.map((job) => Number(counts?.[worker]?.[job] || 0));
+    const values = [getWorkerLabel(worker), ...taskCounts, taskCounts.reduce((sum, value) => sum + value, 0)];
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      if (index === values.length - 1) {
+        const strong = document.createElement("strong");
+        strong.textContent = String(value);
+        cell.appendChild(strong);
+      } else {
+        cell.textContent = String(value);
+      }
+      row.appendChild(cell);
+    });
     tbody.appendChild(row);
   }
-
-  table.appendChild(thead);
-  table.appendChild(tbody);
-
-  wrapper.appendChild(table);
-
-  container.innerHTML = "";
-  container.appendChild(wrapper);
+  table.append(thead, tbody);
+  section.append(heading, table);
+  return section;
 }
 
 

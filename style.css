@@ -529,6 +529,9 @@ button {
   overflow-x: auto;
 }
 
+.worker-summary-tables { display: grid; gap: 20px; }
+.worker-summary-heading { margin: 0 0 8px; font-size: 15px; }
+
 .worker-table {
   width: 100%;
   min-width: 720px;
