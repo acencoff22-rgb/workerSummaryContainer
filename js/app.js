@@ -98,24 +98,31 @@ let isGenerating = false;
 
 let optimizeWorker = null;
 
+let pendingScheduleCommit = null;
+
 function createFlexibleSchedule(year, month, startDay, endDay, startingCounts = {}) {
   const totals = Object.fromEntries(WORKERS.map((worker) => [worker, JOBS.reduce((sum, job) => sum + Number(startingCounts?.[worker]?.[job] || 0), 0)]));
+  const jobTotals = Object.fromEntries(WORKERS.map((worker) => [worker, Object.fromEntries(JOBS.map((job) => [job, Number(startingCounts?.[worker]?.[job] || 0)]))]));
   const schedule = [];
   for (let day = startDay; day <= endDay; day += 1) {
+    const weekday = new Date(year, month - 1, day).getDay();
+    if (weekday === 0 || weekday === 6) continue;
     const dayOffset = day - startDay;
     const used = new Set();
     const assignments = {};
     for (const job of JOBS) {
       let candidates = WORKERS.filter((worker) => !used.has(worker));
       if (!candidates.length) candidates = [...WORKERS];
-      candidates.sort((a, b) => totals[a] - totals[b] || ((WORKERS.indexOf(a) - dayOffset + WORKERS.length) % WORKERS.length) - ((WORKERS.indexOf(b) - dayOffset + WORKERS.length) % WORKERS.length));
+      candidates.sort((a, b) => jobTotals[a][job] - jobTotals[b][job] || totals[a] - totals[b] || ((WORKERS.indexOf(a) - dayOffset + WORKERS.length) % WORKERS.length) - ((WORKERS.indexOf(b) - dayOffset + WORKERS.length) % WORKERS.length));
       const worker = candidates[0];
       assignments[job] = worker;
       totals[worker] += 1;
+      jobTotals[worker][job] += 1;
       used.add(worker);
     }
     schedule.push({ year, month, day, ...assignments });
   }
+  if (schedule.length === 0) throw new Error("선택한 기간에 배정할 평일이 없습니다.");
   return schedule;
 }
 
@@ -576,12 +583,16 @@ async function handleGenerate() {
 
   if (status) {
     status.textContent =
-      "월 전체 최적화 중...";
+      "평일 일정 생성 중...";
 
     status.classList.remove(
       "success",
     );
   }
+
+  pendingScheduleCommit = null;
+  const confirmButton = document.getElementById("confirmScheduleButton");
+  if (confirmButton) confirmButton.hidden = true;
 
   isGenerating = true;
 
@@ -599,11 +610,6 @@ async function handleGenerate() {
     } = inputs;
 
     updateCalendarToGeneratedMonth();
-
-    cleanupOldHistory(
-      year,
-      month,
-    );
 
     const startingCounts =
       getStartingCountsForMonth(
@@ -657,83 +663,31 @@ async function handleGenerate() {
       schedule,
     );
 
-    setCurrentOriginalCounts(
-      originalCounts,
-    );
+    // A generated schedule is a preview. Keep it out of cumulative counts
+    // until the user confirms this final version.
+    setCurrentOriginalCounts(null);
 
     setCurrentSchedule(
       scheduleWithLeave,
     );
 
-    const monthKey =
-      getMonthKey(
-        year,
-        month,
-      );
-
-    const monthLeave = {};
-
-    for (
-      const [
-        dateKey,
-        workers,
-      ] of Object.entries(
-        appData.leave || {},
-      )
-    ) {
-      if (
-        dateKey.startsWith(
-          `${monthKey}-`,
-        )
-      ) {
-        monthLeave[dateKey] = [
-          ...workers,
-        ];
-      }
-    }
-
-    const nextHistory = {
-      ...(appData.history || {}),
-    };
-
-    nextHistory[monthKey] = {
-      schedule:
-        deepClone(
-          schedule,
-        ),
-
-      originalCounts:
-        deepClone(
-          originalCounts,
-        ),
-
-      leave:
-        monthLeave,
-    };
-
-    const nextData = {
-      ...appData,
-
-      history:
-        nextHistory,
-    };
-
-    setAppData(
-      nextData,
-    );
-
-    cleanupOldHistory(
+    pendingScheduleCommit = {
       year,
       month,
-    );
-
-    saveLocalData(
-      appData,
-    );
+      startDay,
+      endDay,
+      schedule: deepClone(schedule),
+      originalCounts: deepClone(originalCounts),
+    };
 
     renderSchedule();
     renderLeaveList(refreshScheduleOrCalendar);
     updateDataStatus();
+    if (confirmButton) confirmButton.hidden = false;
+    if (status) {
+      status.textContent = `${schedule.length}일 미리보기 · 확정 전에는 누적 횟수에 반영되지 않습니다.`;
+      status.classList.remove("success");
+    }
   } catch (error) {
     console.error(
       "배정 실패:",
@@ -761,6 +715,44 @@ async function handleGenerate() {
       generateButton.disabled =
         false;
     }
+  }
+}
+
+
+function handleConfirmSchedule() {
+  if (!pendingScheduleCommit) return;
+  const { year, month, startDay, endDay, schedule, originalCounts } = pendingScheduleCommit;
+  const monthKey = getMonthKey(year, month);
+  const monthLeave = Object.fromEntries(
+    Object.entries(appData.leave || {})
+      .filter(([dateKey]) => dateKey.startsWith(`${monthKey}-`))
+      .map(([dateKey, workers]) => [dateKey, [...workers]]),
+  );
+  const nextHistory = { ...(appData.history || {}) };
+  // Replace the month's previous result; never add a regenerated period twice.
+  nextHistory[monthKey] = {
+    schedule: deepClone(schedule),
+    originalCounts: deepClone(originalCounts),
+    leave: monthLeave,
+    period: { startDay, endDay },
+  };
+  const nextData = { ...appData, history: nextHistory };
+  setAppData(nextData);
+  setCurrentOriginalCounts(originalCounts);
+  cleanupOldHistory(year, month);
+  const saved = saveLocalData(appData);
+  pendingScheduleCommit = null;
+  const confirmButton = document.getElementById("confirmScheduleButton");
+  if (confirmButton) confirmButton.hidden = true;
+  renderSchedule();
+  renderLeaveList(refreshScheduleOrCalendar);
+  updateDataStatus();
+  const status = document.getElementById("statusText");
+  if (status) {
+    status.textContent = saved
+      ? `${schedule.length}일 일정 확정 · 이 기간의 최종 일정만 누적 횟수에 반영했습니다.`
+      : "일정은 확정했지만 브라우저 저장에 실패했습니다.";
+    status.classList.toggle("success", saved);
   }
 }
 
@@ -927,6 +919,15 @@ function readDateInputs() {
     );
   }
 
+  let weekdays = 0;
+  for (let day = startDay; day <= endDay; day += 1) {
+    const weekday = new Date(year, month - 1, day).getDay();
+    if (weekday !== 0 && weekday !== 6) weekdays += 1;
+  }
+  if (weekdays === 0) {
+    throw new Error("선택한 기간에 배정할 평일이 없습니다. 월요일부터 금요일 사이의 날짜를 선택해주세요.");
+  }
+
   return {
     year,
     month,
@@ -1089,6 +1090,10 @@ function bindEvents() {
       "click",
       handleGenerate,
     );
+
+  document
+    .getElementById("confirmScheduleButton")
+    ?.addEventListener("click", handleConfirmSchedule);
 
   document
     .getElementById(

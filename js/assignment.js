@@ -151,6 +151,7 @@ export function getStartingCountsForMonth(
     )
   ) {
     if (monthKey === targetMonth) {
+      // 재생성은 대상 월 기록을 덮어쓰므로 이전 결과를 시작 누적량에 더하지 않는다.
       continue;
     }
 
@@ -1989,6 +1990,13 @@ function optimizeMonthBeamSearchFallback(
     day <= endDay;
     day += 1
   ) {
+    if (
+      new Date(year, month - 1, day).getDay() === 0 ||
+      new Date(year, month - 1, day).getDay() === 6
+    ) {
+      continue;
+    }
+
     dates.push(
       getDateInfo(
         year,
@@ -2108,6 +2116,13 @@ function optimizeMonthByQuota(
     day <= endDay;
     day += 1
   ) {
+    if (
+      new Date(year, month - 1, day).getDay() === 0 ||
+      new Date(year, month - 1, day).getDay() === 6
+    ) {
+      continue;
+    }
+
     dates.push(
       getDateInfo(
         year,

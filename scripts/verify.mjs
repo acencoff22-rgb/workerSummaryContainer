@@ -43,6 +43,15 @@ function assert(condition, message) {
   }
 }
 
+function countWeekdays(year, month, startDay, endDay) {
+  let count = 0;
+  for (let day = startDay; day <= endDay; day += 1) {
+    const weekday = new Date(year, month - 1, day).getDay();
+    if (weekday !== 0 && weekday !== 6) count += 1;
+  }
+  return count;
+}
+
 function verifyZeroCounts(startDay, endDay) {
   const data = createEmptyData();
   setAppData(data);
@@ -71,7 +80,7 @@ function verifyZeroCounts(startDay, endDay) {
     `${startDay}-${endDay}: 규칙 위반 ${errors.length}건`,
   );
 
-  const days = endDay - startDay + 1;
+  const days = countWeekdays(2026, 9, startDay, endDay);
 
   for (const worker of WORKERS) {
     const total = JOBS.reduce(
@@ -141,9 +150,10 @@ function verifyThirtySixMonths() {
         `${monthKey}: 규칙 위반 ${errors.length}건`,
       );
 
+      const workdays = countWeekdays(year, month, 1, 30);
       assert(
-        schedule.length === 30,
-        `${monthKey}: 배정일수 ${schedule.length}일 / 30일`,
+        schedule.length === workdays,
+        `${monthKey}: 배정일수 ${schedule.length}일 / 평일 ${workdays}일`,
       );
 
       appData.history[monthKey] = {
@@ -279,7 +289,7 @@ function verifyAllDayRanges() {
           );
 
         const days =
-          endDay - startDay + 1;
+          countWeekdays(year, month, startDay, endDay);
 
         if (errors.length > 0) {
           failures.push(

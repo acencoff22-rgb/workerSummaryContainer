@@ -243,6 +243,16 @@ export function normalizeHistory(
         normalizeLeaveMap(
           monthData.leave,
         ),
+
+      period:
+        monthData.period &&
+        Number.isInteger(monthData.period.startDay) &&
+        Number.isInteger(monthData.period.endDay)
+          ? {
+              startDay: monthData.period.startDay,
+              endDay: monthData.period.endDay,
+            }
+          : null,
     };
   }
 
