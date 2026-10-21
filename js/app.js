@@ -57,6 +57,7 @@ import {
   updateLeaveWorkerLabels,
   handleSaveNameSettings,
   handleResetNameSettings,
+  bindRosterControls,
 } from "./settings.js";
 
 import {
@@ -87,12 +88,36 @@ import {
   handlePrintCalendar,
 } from "./print.js";
 
+import { WORKERS, JOBS, DEFAULT_WORKERS, DEFAULT_JOBS } from "./config.js";
+
+
 
 let initialized = false;
 
 let isGenerating = false;
 
 let optimizeWorker = null;
+
+function createFlexibleSchedule(year, month, startDay, endDay, startingCounts = {}) {
+  const totals = Object.fromEntries(WORKERS.map((worker) => [worker, JOBS.reduce((sum, job) => sum + Number(startingCounts?.[worker]?.[job] || 0), 0)]));
+  const schedule = [];
+  for (let day = startDay; day <= endDay; day += 1) {
+    const dayOffset = day - startDay;
+    const used = new Set();
+    const assignments = {};
+    for (const job of JOBS) {
+      let candidates = WORKERS.filter((worker) => !used.has(worker));
+      if (!candidates.length) candidates = [...WORKERS];
+      candidates.sort((a, b) => totals[a] - totals[b] || ((WORKERS.indexOf(a) - dayOffset + WORKERS.length) % WORKERS.length) - ((WORKERS.indexOf(b) - dayOffset + WORKERS.length) % WORKERS.length));
+      const worker = candidates[0];
+      assignments[job] = worker;
+      totals[worker] += 1;
+      used.add(worker);
+    }
+    schedule.push({ year, month, day, ...assignments });
+  }
+  return schedule;
+}
 
 
 /*
@@ -586,8 +611,9 @@ async function handleGenerate() {
         month,
       );
 
-    const schedule =
-      await runOptimizeMonthAsync(
+    const standardRoster = WORKERS.length === DEFAULT_WORKERS.length && JOBS.length === DEFAULT_JOBS.length && DEFAULT_WORKERS.every((worker, index) => WORKERS[index] === worker) && DEFAULT_JOBS.every((job, index) => JOBS[index] === job);
+    const schedule = standardRoster
+      ? await runOptimizeMonthAsync(
         {
           year,
           month,
@@ -595,7 +621,8 @@ async function handleGenerate() {
           endDay,
           startingCounts,
         },
-      );
+      )
+      : createFlexibleSchedule(year, month, startDay, endDay, startingCounts);
 
     const originalCounts =
       calculateOriginalCounts(
@@ -743,7 +770,7 @@ async function handleGenerate() {
  * 처음 배포됐던 시점(2026년 9월)의 값이 그대로
  * 박혀 있어서, 다음 달부터는 매번 손으로 고쳐야 했다.
  *
- * 앱을 열 때 오늘 날짜 기준으로 자동으로 채워준다.
+ * 앱을 열 때 내일 날짜 기준으로 자동으로 채워준다.
  * (사용자가 값을 바꾼 뒤에는 그 값을 그대로 존중한다 —
  * 이 함수는 초기화 시점에 한 번만 호출된다.)
  */
@@ -782,6 +809,7 @@ function setDefaultDateInputsToToday() {
   }
 
   const today = new Date();
+  today.setDate(today.getDate() + 1);
 
   const year =
     today.getFullYear();
@@ -1341,6 +1369,11 @@ async function initializeApp() {
   setAppData(
     localData || createEmptyData(),
   );
+  bindRosterControls(() => refreshAll());
+
+  // Bind the controls before optional rendering/data loading so one
+  // initialization error cannot leave the entire page inert.
+  bindEvents();
 
   initializeGithubConfig();
 
@@ -1360,8 +1393,6 @@ async function initializeApp() {
   updateCalendarToGeneratedMonth();
   renderCalendar();
 
-  bindEvents();
-
   if (
     githubConfig.owner &&
     githubConfig.repo
@@ -1379,7 +1410,16 @@ async function initializeApp() {
 }
 
 
-document.addEventListener(
-  "DOMContentLoaded",
-  initializeApp,
-);
+function startApp() {
+  initializeApp().catch((error) => {
+    console.error("앱 초기화 실패:", error);
+    const status = document.getElementById("statusText");
+    if (status) status.textContent = "화면 초기화 중 오류가 발생했습니다. 새로고침 후 다시 시도해주세요.";
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startApp, { once: true });
+} else {
+  startApp();
+}

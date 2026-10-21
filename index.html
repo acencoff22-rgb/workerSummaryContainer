@@ -75,8 +75,7 @@
       <div>
         <h2>이름 및 업무명 설정</h2>
         <p>
-          화면에 표시되는 이름만 변경합니다.
-          기존 누적 이력과 배정 규칙은 그대로 유지됩니다.
+          작업자와 업무를 추가하거나 삭제할 수 있습니다. 변경한 명단은 이후 배정에 적용됩니다.
         </p>
       </div>
     </div>
@@ -85,11 +84,13 @@
       <div>
         <h3>작업자 이름</h3>
         <div id="workerNameSettings" class="name-settings-grid"></div>
+        <div class="planner-add-row"><input id="newPlannerWorker" type="text" maxlength="30" placeholder="작업자 이름"><button id="addPlannerWorker" class="secondary-button" type="button">작업자 추가</button></div>
       </div>
 
       <div>
         <h3>업무명</h3>
         <div id="jobNameSettings" class="name-settings-grid"></div>
+        <div class="planner-add-row"><input id="newPlannerJob" type="text" maxlength="50" placeholder="업무 이름"><button id="addPlannerJob" class="secondary-button" type="button">업무 추가</button></div>
       </div>
     </div>
 

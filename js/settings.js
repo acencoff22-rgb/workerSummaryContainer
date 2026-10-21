@@ -3,6 +3,9 @@
 import {
   WORKERS,
   JOBS,
+  DEFAULT_WORKERS,
+  DEFAULT_JOBS,
+  setRoster,
 } from "./config.js";
 
 import {
@@ -14,6 +17,8 @@ import {
   createDefaultNameSettings,
   saveLocalData,
 } from "./data.js";
+
+let rosterChangeHandler = () => {};
 
 
 export function getWorkerLabel(
@@ -89,6 +94,15 @@ export function renderNameSettings() {
         label.appendChild(title);
         label.appendChild(input);
 
+        if (WORKERS.length > 1) {
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "secondary-button planner-remove";
+          remove.textContent = "삭제";
+          remove.addEventListener("click", () => removeRosterItem("workers", worker));
+          label.appendChild(remove);
+        }
+
         workerContainer.appendChild(
           label,
         );
@@ -138,6 +152,15 @@ export function renderNameSettings() {
         label.appendChild(title);
         label.appendChild(input);
 
+        if (JOBS.length > 1) {
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "secondary-button planner-remove";
+          remove.textContent = "삭제";
+          remove.addEventListener("click", () => removeRosterItem("jobs", job));
+          label.appendChild(remove);
+        }
+
         jobContainer.appendChild(
           label,
         );
@@ -146,8 +169,72 @@ export function renderNameSettings() {
   }
 }
 
+function removeRosterItem(type, key) {
+  if (!window.confirm("이 항목을 명단에서 삭제할까요? 이후 배정부터 반영됩니다.")) return;
+  const nextWorkers = type === "workers" ? WORKERS.filter((item) => item !== key) : [...WORKERS];
+  const nextJobs = type === "jobs" ? JOBS.filter((item) => item !== key) : [...JOBS];
+  setRoster(nextWorkers, nextJobs);
+  const names = { workers: { ...appData.names.workers }, jobs: { ...appData.names.jobs } };
+  delete names[type][key];
+  const nextData = { ...appData, names };
+  setAppData(nextData);
+  saveLocalData(nextData);
+  localStorage.setItem("assignment-app-roster-v1", JSON.stringify({ workers: nextWorkers, jobs: nextJobs }));
+  renderNameSettings();
+  rosterChangeHandler();
+}
+
+export function bindRosterControls(onChange) {
+  rosterChangeHandler = onChange || (() => {});
+  const add = (type, inputId) => {
+    const input = document.getElementById(inputId);
+    const value = input.value.trim();
+    if (!value) return;
+    const items = type === "workers" ? WORKERS : JOBS;
+    const labels = appData.names[type] || {};
+    if (items.some((item) => (labels[item] || item).toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      alert("같은 이름이 이미 있습니다.");
+      return;
+    }
+    const key = `custom-${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const workers = type === "workers" ? [...WORKERS, key] : [...WORKERS];
+    const jobs = type === "jobs" ? [...JOBS, key] : [...JOBS];
+    setRoster(workers, jobs);
+    const names = { workers: { ...appData.names.workers }, jobs: { ...appData.names.jobs } };
+    names[type][key] = value;
+    const nextData = { ...appData, names };
+    setAppData(nextData);
+    saveLocalData(nextData);
+    localStorage.setItem("assignment-app-roster-v1", JSON.stringify({ workers, jobs }));
+    input.value = "";
+    renderNameSettings();
+    onChange?.();
+  };
+  document.getElementById("addPlannerWorker")?.addEventListener("click", () => add("workers", "newPlannerWorker"));
+  document.getElementById("addPlannerJob")?.addEventListener("click", () => add("jobs", "newPlannerJob"));
+}
+
 
 export function updateLeaveWorkerLabels() {
+  const checkboxContainer = document.querySelector(".worker-checkboxes");
+  if (checkboxContainer) {
+    const selected = new Set([...checkboxContainer.querySelectorAll("[data-leave-worker]:checked")].map((input) => input.value));
+    checkboxContainer.replaceChildren();
+    for (const worker of WORKERS) {
+      const label = document.createElement("label");
+      label.className = "checkbox-label";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = worker;
+      input.dataset.leaveWorker = "";
+      input.checked = selected.has(worker);
+      const text = document.createElement("span");
+      text.dataset.workerLabel = worker;
+      text.textContent = getWorkerLabel(worker);
+      label.append(input, text);
+      checkboxContainer.append(label);
+    }
+  }
   document
     .querySelectorAll(
       "[data-worker-label]",
@@ -309,6 +396,9 @@ export function handleResetNameSettings() {
     return false;
   }
 
+  setRoster(DEFAULT_WORKERS, DEFAULT_JOBS);
+  localStorage.removeItem("assignment-app-roster-v1");
+
   const nextData = {
     ...appData,
 
@@ -319,6 +409,7 @@ export function handleResetNameSettings() {
   setAppData(
     nextData,
   );
+
 
   saveLocalData(
     nextData,
