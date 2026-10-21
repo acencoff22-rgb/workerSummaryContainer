@@ -97,8 +97,9 @@ export function renderNameSettings() {
         if (WORKERS.length > 1) {
           const remove = document.createElement("button");
           remove.type = "button";
-          remove.className = "secondary-button planner-remove";
-          remove.textContent = "삭제";
+          remove.className = "secondary-button planner-remove remove-roster-button";
+          remove.textContent = "작업자 삭제";
+          remove.title = `${getWorkerLabel(worker)} 작업자를 명단에서 삭제`;
           remove.addEventListener("click", () => removeRosterItem("workers", worker));
           label.appendChild(remove);
         }
@@ -155,8 +156,9 @@ export function renderNameSettings() {
         if (JOBS.length > 1) {
           const remove = document.createElement("button");
           remove.type = "button";
-          remove.className = "secondary-button planner-remove";
-          remove.textContent = "삭제";
+          remove.className = "secondary-button planner-remove remove-roster-button";
+          remove.textContent = "업무 삭제";
+          remove.title = `${getJobLabel(job)} 업무를 명단에서 삭제`;
           remove.addEventListener("click", () => removeRosterItem("jobs", job));
           label.appendChild(remove);
         }

@@ -206,6 +206,7 @@ button {
 .planner-add-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .planner-add-row input { flex: 1; min-width: 0; }
 .planner-remove { min-height: 32px; padding: 4px 10px; }
+.remove-roster-button { color: var(--danger); border-color: var(--danger); white-space: nowrap; }
 
 .leave-form {
   display: flex;
